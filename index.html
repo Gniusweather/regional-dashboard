@@ -393,13 +393,11 @@
 
         if (res.status === 429) {
           hadRateLimit = true;
-          // parse Retry-After or default to metarInterval
           const ra = res.headers.get('Retry-After');
           const wait = ra ? parseInt(ra,10) : metarInterval;
           retryCountdown = wait;
           showRetry(wait);
 
-          // countdown display
           retryCountdownInt = setInterval(() => {
             retryCountdown--;
             if (retryCountdown > 0) {
@@ -407,7 +405,6 @@
             }
           }, 1000);
 
-          // schedule next fetch after wait
           retryTimer = setTimeout(() => {
             clearInterval(retryCountdownInt);
             updateAll();
@@ -422,11 +419,9 @@
           return;
         }
 
-        // successful fetch
         const json = await res.json();
         rawList = json.data || [];
 
-        // if we had a rate-limit before, notify back online
         if (hadRateLimit) {
           showSuccess('METAR back online');
           hadRateLimit = false;
@@ -435,7 +430,6 @@
         }
 
       } else {
-        // Test mode
         hideError();
         rawList = [
           "TNCA 010300Z 04015G40KT 4500 +TSRA OVC020CB 20/18 Q1012",
@@ -462,10 +456,10 @@
       const now             = new Date();
       const curHour         = now.getUTCHours();
       const prevHour        = (curHour + 23) % 24;
-      let anyNew           = false;
-      const prevRaw        = {};
-      const histories      = window.histories || (window.histories = {});
-      window.initialLoad   = window.initialLoad || true;
+      let anyNew            = false;
+      const prevRaw         = {};
+      const histories       = window.histories || (window.histories = {});
+      window.initialLoad    = window.initialLoad || true;
 
       list.forEach(raw => {
         const toks     = raw.split(' ');
@@ -474,18 +468,16 @@
         const hrToken  = time.length>=4 ? +time.slice(2,4) : null;
         const minToken = time.length>=6 ? +time.slice(4,6) : null;
 
-        // freshness
         let isFresh;
         if (code==='TNCB') isFresh = true;
         else if (code==='TNCC')
           isFresh = hrToken===curHour || (hrToken===prevHour && minToken>=55);
         else isFresh = hrToken>=curHour;
 
-        const dim = isFresh ? '' : 'dimmed';
-        const highlight = code==='TNCC' && hrToken===prevHour && minToken>=55
+        const dim        = isFresh ? '' : 'dimmed';
+        const highlight  = code==='TNCC' && hrToken===prevHour && minToken>=55
           ? 'time-highlight' : '';
 
-        // parse
         let wind='–', vis='–', td='–', qnh='–';
         const clouds=[], wx=[];
 
@@ -512,12 +504,11 @@
         const lowVis     = visVal<=5000;
         const gustAlert  = gustVal>=35;
         const wxAlert    = wx.length>0;
-        const cloudAlert=clouds.some(c=>/TCU|CB/.test(c));
+        const cloudAlert = clouds.some(c=>/TCU|CB/.test(c));
         const alertOn    = lowVis||gustAlert||wxAlert||cloudAlert;
 
-        // new-data flag
-        const prev = prevRaw[code];
-        const isNew = prev!==undefined && prev!==raw;
+        const prev      = prevRaw[code];
+        const isNew     = prev!==undefined && prev!==raw;
         if (isNew) anyNew = true;
 
         const newClass = isNew ? ' new-data time-updated' : '';
@@ -560,7 +551,6 @@
         beepEl.play().catch(()=>{});
       }
       window.initialLoad = false;
-      // fade out time-updated highlight
       document.querySelectorAll('td.time-updated')
         .forEach(cell => setTimeout(()=>cell.classList.remove('time-updated'),1500));
     }
@@ -627,28 +617,22 @@
       updatePressure();
     }
 
-    // start
     updateClocks();
     setInterval(updateClocks, 6000);
-    startLoop();
 
     function startLoop() {
       window.lastFetch = Date.now();
       updateAll();
       scheduleNext(metarInterval);
     }
+    startLoop();
 
-    // pressure input
     pInput.addEventListener('input', updatePressure);
-
-    // copy on dblclick
     document.querySelector('.table-wrapper').addEventListener('dblclick', e=>{
       const td = e.target.closest('td');
       if(!td) return;
       navigator.clipboard.writeText(td.textContent.trim()).catch(()=>{});
     });
-
-    // adjust interval via Ctrl+Arrows
     window.addEventListener('keydown', e=>{
       if(e.ctrlKey && e.key==='ArrowUp') {
         metarInterval = Math.max(5, metarInterval-5);
