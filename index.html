@@ -1,4 +1,4 @@
--<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -457,9 +457,9 @@
       const curHour         = now.getUTCHours();
       const prevHour        = (curHour + 23) % 24;
       let anyNew            = false;
-      const prevRaw         = {};
+      const prevRaw         = window.prevRaw || (window.prevRaw = {});
       const histories       = window.histories || (window.histories = {});
-      window.initialLoad    = window.initialLoad || true;
+      if (window.initialLoad === undefined) window.initialLoad = true;
 
       list.forEach(raw => {
         const toks     = raw.split(' ');
