@@ -257,6 +257,7 @@
 <body>
 
   <button id="mode-toggle">Switch to Test Mode</button>
+  <button id="refresh-now">Refresh Now</button>
   <h1>CAR/VEN METAR AND TAF</h1>
 
   <div id="error-message"></div>
@@ -314,8 +315,10 @@
     let retryCountdown    = 0;
     let retryCountdownInt = null;
     let hadRateLimit      = false;
+    let pausedByHidden    = false;
 
     const modeToggleEl    = document.getElementById('mode-toggle');
+    const refreshBtnEl    = document.getElementById('refresh-now');
     const errorEl         = document.getElementById('error-message');
     const dataEl          = document.getElementById('data');
     const visEl           = document.getElementById('bonaire-visibility');
@@ -330,14 +333,40 @@
 
     const pad = n => n.toString().padStart(2,'0');
 
+    const HTML_ESCAPES = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' };
+    const escapeHtml = str => String(str).replace(/[&<>"']/g, ch => HTML_ESCAPES[ch]);
+
+    function restartLoop() {
+      clearAllTimers();
+      hideError();
+      startLoop();
+    }
+
     modeToggleEl.addEventListener('click', () => {
       isLive = !isLive;
       modeToggleEl.textContent = isLive
         ? 'Switch to Test Mode'
         : 'Switch to Live Mode';
-      clearAllTimers();
-      hideError();
-      startLoop();
+      restartLoop();
+    });
+
+    refreshBtnEl.addEventListener('click', () => {
+      refreshBtnEl.disabled = true;
+      restartLoop();
+      setTimeout(() => { refreshBtnEl.disabled = false; }, 5000);
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        if (metarTimer) {
+          clearTimeout(metarTimer);
+          metarTimer = null;
+          pausedByHidden = true;
+        }
+      } else if (pausedByHidden) {
+        pausedByHidden = false;
+        updateAll();
+      }
     });
 
     function clearAllTimers() {
@@ -361,6 +390,11 @@
     }
     function hideError() {
       errorEl.textContent = '';
+    }
+    function showTableError(msg) {
+      if (!window.hasRenderedOnce) {
+        dataEl.innerHTML = `<tr><td colspan="8">${escapeHtml(msg)}</td></tr>`;
+      }
     }
 
     function updateClocks() {
@@ -387,6 +421,7 @@
           );
         } catch (err) {
           showError(`Error loading METAR: ${err.message}`);
+          showTableError('Unable to load data — retrying…');
           scheduleNext(metarInterval);
           return;
         }
@@ -397,6 +432,7 @@
           const wait = ra ? parseInt(ra,10) : metarInterval;
           retryCountdown = wait;
           showRetry(wait);
+          showTableError('Unable to load data — retrying…');
 
           retryCountdownInt = setInterval(() => {
             retryCountdown--;
@@ -415,6 +451,7 @@
 
         if (!res.ok) {
           showError(`Error loading METAR: ${res.status} ${res.statusText}`);
+          showTableError('Unable to load data — retrying…');
           scheduleNext(metarInterval);
           return;
         }
@@ -472,7 +509,7 @@
         if (code==='TNCB') isFresh = true;
         else if (code==='TNCC')
           isFresh = hrToken===curHour || (hrToken===prevHour && minToken>=55);
-        else isFresh = hrToken>=curHour;
+        else isFresh = hrToken===curHour;
 
         const dim        = isFresh ? '' : 'dimmed';
         const highlight  = code==='TNCC' && hrToken===prevHour && minToken>=55
@@ -514,14 +551,14 @@
         const newClass = isNew ? ' new-data time-updated' : '';
         html += `
           <tr class="${dim}">
-            <td class="station-code ${alertOn?'alert':''}">${code}</td>
-            <td class="${highlight}${newClass}">${time}</td>
-            <td class="${gustAlert?'gust':''}">${wind}</td>
-            <td class="${lowVis?'low-vis':''}">${vis}</td>
-            <td class="wx ${wxAlert?'low-vis':''}">${wx.join(' ')||'–'}</td>
-            <td class="clouds ${cloudAlert?'low-vis':''}">${clouds.join(' ')||'–'}</td>
-            <td>${td}</td>
-            <td>${qnh}</td>
+            <td class="station-code ${alertOn?'alert':''}">${escapeHtml(code)}</td>
+            <td class="${highlight}${newClass}">${escapeHtml(time)}</td>
+            <td class="${gustAlert?'gust':''}">${escapeHtml(wind)}</td>
+            <td class="${lowVis?'low-vis':''}">${escapeHtml(vis)}</td>
+            <td class="wx ${wxAlert?'low-vis':''}">${escapeHtml(wx.join(' '))||'–'}</td>
+            <td class="clouds ${cloudAlert?'low-vis':''}">${escapeHtml(clouds.join(' '))||'–'}</td>
+            <td>${escapeHtml(td)}</td>
+            <td>${escapeHtml(qnh)}</td>
           </tr>`;
 
         histories[code] = histories[code]||[];
@@ -533,11 +570,11 @@
         html += `
           <tr class="raw-row">
             <td colspan="8">
-              <div class="raw-current">Raw: ${raw}</div>
+              <div class="raw-current">Raw: ${escapeHtml(raw)}</div>
               ${past.length?`
                 <details>
                   <summary>Past METARs</summary>
-                  <ul>${past.map(r=>`<li>${r}</li>`).join('')}</ul>
+                  <ul>${past.map(r=>`<li>${escapeHtml(r)}</li>`).join('')}</ul>
                 </details>`:``}
             </td>
           </tr>`;
@@ -546,6 +583,7 @@
       });
 
       dataEl.innerHTML = html;
+      window.hasRenderedOnce = true;
       if (!window.initialLoad && anyNew) {
         beepEl.currentTime = 0;
         beepEl.play().catch(()=>{});
@@ -596,7 +634,7 @@
 
         tafEl.innerHTML = list.map(r=>{
           const toks = r.split(' ');
-          return `<div><strong>${toks[0]}</strong> <span>${toks[1]}</span> ${toks.slice(2).join(' ')}</div>`;
+          return `<div><strong>${escapeHtml(toks[0])}</strong> <span>${escapeHtml(toks[1])}</span> ${escapeHtml(toks.slice(2).join(' '))}</div>`;
         }).join('');
       } catch {
         tafEl.textContent = '⚠️ Error loading TAF';
