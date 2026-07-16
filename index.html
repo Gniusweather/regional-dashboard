@@ -2050,11 +2050,7 @@ function buildKnmiGridHtml(parsed){
 
 /* Propagate fresh KNMI numbers into other views */
 function propagateKnmi(){
-  if(typeof renderMonitor === 'function'){
-    try { renderMonitor(__monLastData || {}); } catch(e){}
-  }
-  try{ if(typeof condMap!=='undefined' && condMap && __condMapReady) renderCondMap(); }catch(e){}
-  try{ CSTRIP_ICAOS.forEach(function(ic){ if(mState[ic]&&mState[ic].lastRaw) updateCstrip(ic, parseMetar(mState[ic].lastRaw)); }); }catch(e){}
+  // No other views currently subscribe to KNMI updates; reserved for future use.
 }
 
 /* Main loader — fetches via proxy, shows cached data first for fast paint */
@@ -2613,7 +2609,7 @@ function checkSpeci(){
   if(specis.length){
     el.className='speci-banner has-speci';
     el.innerHTML='<span class="speci-hd">⚡ SPECI active</span>'+
-      specis.map(s=>`<span class="speci-item"><b>${s.flag} ${s.id}</b> · ${s.tStr} — ${sanitizeTextForDisplay(s.raw)}</span>`).join('');
+      specis.map(s=>`<span class="speci-item"><b>${s.flag} ${s.id}</b> · ${s.tStr} — ${escapeHtml(sanitizeTextForDisplay(s.raw))}</span>`).join('');
   } else {
     el.className='speci-banner no-speci';
     el.innerHTML='<span class="speci-hd">✓ No SPECI</span>No special reports active — TNCA · TNCC on the hour, TNCB at :55.';
@@ -2777,15 +2773,15 @@ function tafSegFlags(seg){
 function tafSegHtml(tag,type,period,seg,temp){
   const f=tafSegFlags(seg);
   const chips=[];
-  if(seg.wind&&seg.wind!=='--') chips.push(`<span class="taf-chip${f.windAlert?' chip-alert':''}"><b>WIND</b>${seg.wind}</span>`);
-  if(seg.vis&&seg.vis!=='--')   chips.push(`<span class="taf-chip${f.visAlert?' chip-alert':''}"><b>VIS</b>${seg.vis}</span>`);
-  if(seg.wx&&seg.wx!=='--')     chips.push(`<span class="taf-chip${f.wxCrit?' chip-wx':''}"><b>WX</b>${seg.wx}</span>`);
-  if(seg.cld&&seg.cld!=='--')   chips.push(`<span class="taf-chip${f.cldCrit?' chip-cloud':''}"><b>CLD</b>${seg.cld}</span>`);
-  if(seg.qnh&&seg.qnh!=='—')    chips.push(`<span class="taf-chip"><b>QNH</b>${seg.qnh}</span>`);
-  if(temp&&temp!=='--')         chips.push(`<span class="taf-chip"><b>TEMP</b>${temp}</span>`);
+  if(seg.wind&&seg.wind!=='--') chips.push(`<span class="taf-chip${f.windAlert?' chip-alert':''}"><b>WIND</b>${escapeHtml(seg.wind)}</span>`);
+  if(seg.vis&&seg.vis!=='--')   chips.push(`<span class="taf-chip${f.visAlert?' chip-alert':''}"><b>VIS</b>${escapeHtml(seg.vis)}</span>`);
+  if(seg.wx&&seg.wx!=='--')     chips.push(`<span class="taf-chip${f.wxCrit?' chip-wx':''}"><b>WX</b>${escapeHtml(seg.wx)}</span>`);
+  if(seg.cld&&seg.cld!=='--')   chips.push(`<span class="taf-chip${f.cldCrit?' chip-cloud':''}"><b>CLD</b>${escapeHtml(seg.cld)}</span>`);
+  if(seg.qnh&&seg.qnh!=='—')    chips.push(`<span class="taf-chip"><b>QNH</b>${escapeHtml(seg.qnh)}</span>`);
+  if(temp&&temp!=='--')         chips.push(`<span class="taf-chip"><b>TEMP</b>${escapeHtml(temp)}</span>`);
   if(!chips.length)             chips.push(`<span class="taf-chip taf-chip-none">no change groups decoded</span>`);
   return `<div class="taf-seg type-${type}">
-    <div class="taf-seg-hd"><span class="taf-seg-tag">${tag}</span>${period?`<span class="taf-seg-period">${period}</span>`:''}</div>
+    <div class="taf-seg-hd"><span class="taf-seg-tag">${escapeHtml(tag)}</span>${period?`<span class="taf-seg-period">${escapeHtml(period)}</span>`:''}</div>
     <div class="taf-seg-data">${chips.join('')}</div>
   </div>`;
 }
@@ -2876,11 +2872,11 @@ function buildHistoryTableHtml(records){
     const p=parseMetar(rec.raw);
     return `<tr>
       <td class="h-time">${formatHistTime(rec.time)}</td>
-      <td>${p.wind}</td>
-      <td>${p.vis}</td>
-      <td>${p.wx}</td>
-      <td>${p.cld}</td>
-      <td>${p.qnh!=='—'?p.qnh.split(' / ')[0]:'—'}</td>
+      <td>${escapeHtml(p.wind)}</td>
+      <td>${escapeHtml(p.vis)}</td>
+      <td>${escapeHtml(p.wx)}</td>
+      <td>${escapeHtml(p.cld)}</td>
+      <td>${p.qnh!=='—'?escapeHtml(p.qnh.split(' / ')[0]):'—'}</td>
     </tr>`;
   }).join('');
   return `<div class="history-table-wrap"><table class="history-table">
@@ -3666,7 +3662,20 @@ function sameLocalDate(a,b){if(!a||!b)return false;return a.getFullYear()===b.ge
 function evaluateStation(row){
   const now=new Date(),last=parseIso(row.last_updated_iso||row.last_updated);
   const isStaleDate=!last||!sameLocalDate(now,last);
-  return{alerts:[],severity:isStaleDate?3:0,isStaleDate};
+  const alerts=[];
+  let severity=0;
+  const wind=row.wind_speed_knots,heat=row.heat_index_c,rain=row.rain_today_mm;
+  if(wind!=null){
+    if(wind>=25){alerts.push(`High wind ${wind}kt`);severity=Math.max(severity,2);}
+    else if(wind>=15){alerts.push(`Elevated wind ${wind}kt`);severity=Math.max(severity,1);}
+  }
+  if(heat!=null){
+    if(heat>=41){alerts.push(`Extreme heat index ${heat.toFixed(1)}°C`);severity=Math.max(severity,2);}
+    else if(heat>=32){alerts.push(`High heat index ${heat.toFixed(1)}°C`);severity=Math.max(severity,1);}
+  }
+  if(rain!=null&&rain>=20){alerts.push(`Heavy rain ${rain}mm`);severity=Math.max(severity,1);}
+  if(isStaleDate)severity=3;
+  return{alerts,severity,isStaleDate};
 }
 
 /* ── COLOUR HELPERS (stations dashboard) ── */
