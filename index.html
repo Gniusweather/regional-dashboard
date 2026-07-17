@@ -1154,15 +1154,6 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
         <iframe title="Windy radar — Curaçao" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
           data-src="https://embed.windy.com/embed2.html?lat=12.19&lon=-68.96&detailLat=12.19&detailLon=-68.96&zoom=8&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
       </div>
-      <div class="windy-box windy-rain">
-        <span class="windy-lbl">🌧 Rain/Thunder · ABC</span>
-        <iframe title="Windy AROME rain — ABC islands" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
-          data-src="https://embed.windy.com/embed2.html?lat=12.19&lon=-68.96&detailLat=12.19&detailLon=-68.96&zoom=6&level=surface&overlay=rain&product=aromeAntilles&menu=&message=&marker=&calendar=&pressure=true&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
-      </div>
-      <div class="windy-box ventusky-box">
-        <span class="windy-lbl">🌧 Precip +3h · Ventusky</span>
-        <iframe id="ventuskyFrame" title="Ventusky precipitation +3h — HARMONIE Caribbean" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
-      </div>
     </div>
     <!-- Vis Widget (hidden — kept so the visibility code keeps running; value shows in the weather bar) -->
     <div class="weather-widget hidden" id="bonaire-vis-widget" tabindex="0" aria-live="polite" role="region" aria-label="Bonaire visibility" aria-hidden="true">
@@ -1254,6 +1245,7 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
     <button class="tab-btn" data-tab="taf" role="tab" aria-selected="false">📋 TAF</button>
     <button class="tab-btn" data-tab="synop" role="tab" aria-selected="false">🛰 SYNOP</button>
     <button class="tab-btn" data-tab="knmi" role="tab" aria-selected="false">🇧🇶 KNMI</button>
+    <button class="tab-btn" data-tab="maps" role="tab" aria-selected="false">🗺 Maps</button>
     <button class="tab-btn" data-tab="stations" role="tab" aria-selected="false">⊞ Stations</button>
   </nav>
 
@@ -1329,6 +1321,24 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
         <div id="knmiGrid" class="knmi-grid"></div>
         <div class="knmi-charts-head">Trends · 6h recorded history → now → 6h forecast <span class="knmi-charts-sub">(observed = recorded hourly · forecast = KNMI HARMONIE · ◆ live obs)</span></div>
         <div id="knmiCharts" class="knmi-charts"></div>
+      </div>
+    </div>
+
+    <!-- Maps Section -->
+    <div id="mapsSection" class="table-wrapper fade-in hidden">
+      <div class="section-header">
+        <div class="section-title">Rain &amp; Precipitation Maps</div>
+      </div>
+      <div class="windy-widget" role="region" aria-label="Windy AROME rain and Ventusky HARMONIE precipitation maps">
+        <div class="windy-box windy-rain">
+          <span class="windy-lbl">🌧 Rain/Thunder · ABC</span>
+          <iframe title="Windy AROME rain — ABC islands" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
+            data-src="https://embed.windy.com/embed2.html?lat=12.19&lon=-68.96&detailLat=12.19&detailLon=-68.96&zoom=6&level=surface&overlay=rain&product=aromeAntilles&menu=&message=&marker=&calendar=&pressure=true&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
+        </div>
+        <div class="windy-box ventusky-box">
+          <span class="windy-lbl">🌧 Precip +3h · Ventusky</span>
+          <iframe id="ventuskyFrame" title="Ventusky precipitation +3h — HARMONIE Caribbean" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+        </div>
       </div>
     </div>
 
@@ -3898,11 +3908,12 @@ const metarSectionEl=document.getElementById('metarSection');
 const tafSectionEl=document.getElementById('tafSection');
 const synopSectionEl=document.getElementById('synopSection');
 const knmiSectionEl=document.getElementById('knmiSection');
+const mapsSectionEl=document.getElementById('mapsSection');
 const stationsSectionEl=document.getElementById('stationsSection');
 const contentWrapperEl=document.querySelector('.content-wrapper');
 
 function switchTab(name){
-  [metarSectionEl,tafSectionEl,synopSectionEl,knmiSectionEl].forEach(s=>s?.classList.add('hidden'));
+  [metarSectionEl,tafSectionEl,synopSectionEl,knmiSectionEl,mapsSectionEl].forEach(s=>s?.classList.add('hidden'));
   contentWrapperEl?.classList.remove('hidden');
   stationsSectionEl?.classList.add('hidden');
   stationsSectionEl?.setAttribute('aria-hidden','true');
@@ -3915,6 +3926,7 @@ function switchTab(name){
   else if(name==='taf'){tafSectionEl?.classList.remove('hidden');}
   else if(name==='synop'){synopSectionEl?.classList.remove('hidden');}
   else if(name==='knmi'){knmiSectionEl?.classList.remove('hidden');loadKnmiData();}
+  else if(name==='maps'){mapsSectionEl?.classList.remove('hidden');}
   else if(name==='stations'){
     contentWrapperEl?.classList.add('hidden');
     stationsSectionEl?.classList.remove('hidden');
