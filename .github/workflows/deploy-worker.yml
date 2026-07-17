@@ -8,6 +8,8 @@
 #      (right sidebar).
 #   3. GitHub repo -> Settings -> Secrets and variables -> Actions ->
 #      add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+#      Optionally also add VAPID_PRIVATE_KEY_JWK to enable the Web Push
+#      channel (not required for the ntfy channel, which works without it).
 #   4. GitHub repo -> Actions tab -> "Deploy push worker" -> Run workflow.
 #
 # After that it also redeploys automatically whenever push-worker/ changes.
@@ -30,6 +32,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      VAPID_PRIVATE_KEY_JWK: ${{ secrets.VAPID_PRIVATE_KEY_JWK }}
     steps:
       - uses: actions/checkout@v4
 
@@ -68,7 +71,16 @@ jobs:
       - name: Deploy worker
         run: npx wrangler deploy
 
+      - name: Set VAPID private key secret (enables the Web Push channel)
+        run: |
+          if [ -n "$VAPID_PRIVATE_KEY_JWK" ]; then
+            echo "$VAPID_PRIVATE_KEY_JWK" | npx wrangler secret put VAPID_PRIVATE_KEY_JWK
+          else
+            echo "VAPID_PRIVATE_KEY_JWK secret not set — Web Push will stay disabled (ntfy still works)."
+          fi
+
       - name: Done
         run: |
           echo "Deployed. ntfy background alerts are active (NTFY_TOPIC is set in wrangler.toml)."
           echo "The worker cron now polls METAR every 5 minutes and publishes alerts to ntfy even when the app is closed."
+          echo "Copy the 'https://....workers.dev' URL printed by the Deploy worker step above into PUSH_WORKER_URL in index.html to enable the Web Push channel from the dashboard's Settings."
