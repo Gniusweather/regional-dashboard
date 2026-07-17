@@ -176,8 +176,7 @@ async function saveSubs(env, subs) {
 /* ── CORS ── */
 function corsHeaders(env, request) {
   const allowed = (env.ALLOWED_ORIGIN || '*');
-  const origin = request.headers.get('Origin') || '';
-  const allowOrigin = allowed === '*' ? '*' : (origin === allowed ? allowed : allowed);
+  const allowOrigin = allowed;
   return {
     'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
