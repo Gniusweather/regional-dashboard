@@ -2,16 +2,19 @@ name = "rwc-weather-push"
 main = "src/worker.js"
 compatibility_date = "2024-11-01"
 
+# KV namespace that stores push subscriptions + per-station alert config.
+# The deploy workflow injects the real id; locally, `wrangler kv namespace
+# create PUSH_KV` and paste the id below.
+# NOTE: must stay ABOVE any [section] header — in TOML a bare key after a
+# header belongs to that section, and wrangler then silently skips the binding.
+kv_namespaces = [
+  { binding = "PUSH_KV", id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID" }
+]
+
 # Cron Trigger — checks METAR and sends Web Push independently of whether
 # anyone has the dashboard open. Every 5 minutes.
 [triggers]
 crons = ["*/5 * * * *"]
-
-# KV namespace that stores push subscriptions + per-station alert config.
-# Create it with `wrangler kv namespace create PUSH_KV`, then paste the id below.
-kv_namespaces = [
-  { binding = "PUSH_KV", id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID" }
-]
 
 [vars]
 # Restrict who can call /subscribe /unsubscribe. Set to your GitHub Pages
