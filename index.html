@@ -730,6 +730,16 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
 .knmi-chart-svg .knmi-ax-now{fill:rgba(255,255,255,0.55);font-size:9px;font-family:var(--mono);}
 .knmi-chart-empty{height:90px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;font-style:italic;}
 
+/* ── RADIOSONDE (Maps tab) ── */
+.sonde-wrap{display:flex;flex-direction:column;gap:12px;padding:12px 14px;}
+.sonde-wrap:empty{display:none;}
+.sonde-head{font-family:var(--mono);font-size:12px;color:rgba(200,225,255,0.8);letter-spacing:0.3px;}
+.sonde-head b{color:var(--accent);}
+.sonde-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
+.sonde-chart{max-width:400px;}
+.sonde-link{color:var(--accent);font-family:var(--mono);font-size:11px;text-decoration:none;align-self:flex-start;}
+.sonde-link:hover{text-decoration:underline;}
+
 /* ── TAF FORECAST CARDS ── */
 .taf-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));gap:16px;padding:16px;}
 .taf-card{
@@ -1342,15 +1352,27 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
           <iframe id="ventuskyFrame" title="Ventusky precipitation +3h — HARMONIE Caribbean" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
         </div>
         <div class="windy-box">
-          <span class="windy-lbl">🏜 Dust · ABC</span>
-          <iframe title="Windy dust — ABC islands" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
-            data-src="https://embed.windy.com/embed2.html?lat=12.19&lon=-68.96&detailLat=12.19&detailLon=-68.96&zoom=6&level=surface&overlay=dust&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
+          <span class="windy-lbl">🏜 Dust mass · ABC</span>
+          <iframe title="Windy dust mass — ABC islands" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
+            data-src="https://embed.windy.com/embed2.html?lat=12.19&lon=-68.96&detailLat=12.19&detailLon=-68.96&zoom=6&level=surface&overlay=dustsm&product=cams&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
         </div>
         <div class="windy-box">
           <span class="windy-lbl">🌊 Waves · ABC</span>
           <iframe title="Windy waves — ABC islands" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
             data-src="https://embed.windy.com/embed2.html?lat=12.19&lon=-68.96&detailLat=12.19&detailLon=-68.96&zoom=6&level=surface&overlay=waves&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
         </div>
+      </div>
+
+      <!-- Radiosonde — latest TNCC (Hato, 78988) upper-air sounding with stability indices -->
+      <div class="section-header" style="margin-top:16px;">
+        <div class="section-title">Radiosonde · TNCC Curaçao (78988)</div>
+        <div class="section-controls">
+          <button id="sonde-refresh-btn" class="btn-primary" style="font-size:11px;height:30px;padding:6px 12px;" title="Refresh sounding">↻ Sounding</button>
+        </div>
+      </div>
+      <div class="table-card">
+        <div id="sondeStatus" class="knmi-status">Loading latest TNCC radiosonde…</div>
+        <div id="sondeContent" class="sonde-wrap"></div>
       </div>
     </div>
 
@@ -3990,7 +4012,7 @@ function switchTab(name){
   else if(name==='taf'){tafSectionEl?.classList.remove('hidden');}
   else if(name==='synop'){synopSectionEl?.classList.remove('hidden');}
   else if(name==='knmi'){knmiSectionEl?.classList.remove('hidden');loadKnmiData();}
-  else if(name==='maps'){mapsSectionEl?.classList.remove('hidden');}
+  else if(name==='maps'){mapsSectionEl?.classList.remove('hidden');loadRadiosonde();}
   else if(name==='stations'){
     contentWrapperEl?.classList.add('hidden');
     stationsSectionEl?.classList.remove('hidden');
@@ -4001,6 +4023,229 @@ function switchTab(name){
 
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.addEventListener('click',()=>switchTab(btn.dataset.tab));
+});
+
+/* ════════ RADIOSONDE — latest TNCC (Hato, Curaçao) upper-air sounding ════════
+   Source: University of Wyoming upper-air archive (station 78988). Fetched via
+   the same CORS-proxy race as everything else, parsed for the stability
+   indices ("label: value" lines) and the T/Td profile (fixed-width rows),
+   then rendered as index tiles + an automated analysis + a profile chart. */
+const SONDE_STNM='78988';
+const SONDE_CACHE_KEY='sonde-cache-v1';
+let __sondeLoading=false;
+
+/* Candidate launch cycles, newest first: 12Z/00Z today and the two days
+   before, skipping any cycle younger than ~75min (data not published yet). */
+function sondeCycles(){
+  const out=[]; const now=Date.now();
+  for(let back=0;back<3;back++){
+    for(const hh of [12,0]){
+      const d=new Date(now-back*86400000);
+      const t=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate(),hh,0,0);
+      if(now-t>=75*60*1000) out.push(new Date(t));
+    }
+  }
+  out.sort((a,b)=>b-a);
+  return out.slice(0,4);
+}
+/* Classic cgi-bin endpoint plus the newer wsgi one as fallback per cycle. */
+function sondeUrls(dt){
+  const Y=dt.getUTCFullYear(), M=pad(dt.getUTCMonth()+1), D=pad(dt.getUTCDate()), H=pad(dt.getUTCHours());
+  return [
+    `https://weather.uwyo.edu/cgi-bin/sounding?region=samer&TYPE=TEXT%3ALIST&YEAR=${Y}&MONTH=${M}&FROM=${D}${H}&TO=${D}${H}&STNM=${SONDE_STNM}`,
+    `https://weather.uwyo.edu/wsgi/sounding?datetime=${Y}-${M}-${D}%20${H}:00:00&id=${SONDE_STNM}&type=TEXT:LIST`
+  ];
+}
+function sondeDecodeEntities(s){return String(s||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&');}
+function parseSounding(rawHtml){
+  const html=sondeDecodeEntities(rawHtml);
+  if(!/78988|TNCC/i.test(html)) return null;
+  let obsTime=null;
+  const hm=html.match(/Observations at\s+(\d{1,2})Z\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/i);
+  if(hm) obsTime=`${hm[2]} ${hm[3]} ${hm[4]} · ${pad(+hm[1])}:00Z`;
+  // Stability indices: "Label: number" lines after the indices heading.
+  const ind={};
+  const sect=html.split(/sounding indices/i)[1]||html;
+  sect.replace(/<[^>]+>/g,'\n').split(/\n/).forEach(line=>{
+    const mm=line.match(/^\s*(.+?):\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if(mm) ind[mm[1].trim()]=parseFloat(mm[2]);
+  });
+  if(!obsTime){
+    const ot=sect.match(/Observation time\s*:\s*(\d{2})(\d{2})(\d{2})\/(\d{2})(\d{2})/);
+    if(ot) obsTime=`20${ot[1]}-${ot[2]}-${ot[3]} · ${ot[4]}:${ot[5]}Z`;
+  }
+  // Profile rows: fixed-width columns PRES(0-7) HGHT(7-14) TEMP(14-21) DWPT(21-28).
+  // Only accept purely numeric lines so headers/units/index lines never match.
+  const profile=[];
+  html.replace(/<[^>]+>/g,'\n').split(/\n/).forEach(line=>{
+    if(line.length<21||!/^[\d\s.\-]+$/.test(line.trim())||!line.trim())return;
+    const p=parseFloat(line.slice(0,7)), t=parseFloat(line.slice(14,21)), td=parseFloat(line.slice(21,28));
+    if(isFinite(p)&&p>=100&&p<=1100&&isFinite(t)&&t>-120&&t<60) profile.push({p,t,td:(isFinite(td)&&td>-120&&td<60)?td:null});
+  });
+  if(Object.keys(ind).length<4&&profile.length<8) return null;
+  return {obsTime,ind,profile};
+}
+function sondeVal(ind,names){
+  for(const n of names){ for(const k in ind){ if(k.toLowerCase().indexOf(n.toLowerCase())>=0) return ind[k]; } }
+  return null;
+}
+/* Interpret the indices into a short plain-language outlook. */
+function analyzeSounding(ind){
+  const cape=sondeVal(ind,['CAPE using virtual','Convective Available']);
+  const cin=sondeVal(ind,['CINS using virtual','Convective Inhibition']);
+  const li=sondeVal(ind,['LIFT computed','Lifted index']);
+  const k=sondeVal(ind,['K index']);
+  const tt=sondeVal(ind,['Totals totals']);
+  const pw=sondeVal(ind,['Precipitable water']);
+  const parts=[]; let sev=0;
+  if(cape!=null){
+    if(cape<300)parts.push(`CAPE ${Math.round(cape)} J/kg — little convective energy`);
+    else if(cape<1000){parts.push(`CAPE ${Math.round(cape)} J/kg — marginal instability`);sev=Math.max(sev,1);}
+    else if(cape<2500){parts.push(`CAPE ${Math.round(cape)} J/kg — moderate instability, thunderstorms possible`);sev=Math.max(sev,2);}
+    else{parts.push(`CAPE ${Math.round(cape)} J/kg — strong instability, organised storms possible`);sev=Math.max(sev,3);}
+  }
+  if(li!=null){
+    if(li<=-6){parts.push(`LI ${li.toFixed(1)} — very unstable`);sev=Math.max(sev,3);}
+    else if(li<=-3){parts.push(`LI ${li.toFixed(1)} — unstable`);sev=Math.max(sev,2);}
+    else if(li<0){parts.push(`LI ${li.toFixed(1)} — slightly unstable`);sev=Math.max(sev,1);}
+    else parts.push(`LI ${li.toFixed(1)} — stable`);
+  }
+  if(k!=null){
+    if(k>=35){parts.push(`K-index ${k.toFixed(0)} — widespread thunderstorm potential`);sev=Math.max(sev,3);}
+    else if(k>=26){parts.push(`K-index ${k.toFixed(0)} — scattered thunderstorms possible`);sev=Math.max(sev,2);}
+    else if(k>=20){parts.push(`K-index ${k.toFixed(0)} — isolated convection possible`);sev=Math.max(sev,1);}
+    else parts.push(`K-index ${k.toFixed(0)} — low thunderstorm potential`);
+  }
+  if(tt!=null&&tt>=50){parts.push(`Total Totals ${tt.toFixed(0)} — severe storms cannot be ruled out`);sev=Math.max(sev,3);}
+  if(cin!=null&&cin<=-100)parts.push(`strong cap (CIN ${Math.round(cin)} J/kg) may suppress development`);
+  if(pw!=null){
+    if(pw>=50){parts.push(`very moist column (PW ${pw.toFixed(0)}mm) — heavy rain possible with any storms`);sev=Math.max(sev,2);}
+    else if(pw>=40)parts.push(`moist column (PW ${pw.toFixed(0)}mm)`);
+    else if(pw<30)parts.push(`dry column (PW ${pw.toFixed(0)}mm)`);
+  }
+  const icon=sev>=3?'⛈️':sev>=2?'🌦️':sev>=1?'🌤️':'☀️';
+  const headline=sev>=3?'Unstable — significant convection possible':sev>=2?'Some instability — showers or storms possible':sev>=1?'Mostly benign — isolated convection at most':'Stable airmass';
+  return {icon,headline,text:parts.join('. ')+(parts.length?'.':'')};
+}
+/* Index tiles, colour-banded like the KNMI tiles. */
+function sondeTilesHtml(ind){
+  const defs=[
+    {names:['CAPE using virtual','Convective Available'],lbl:'CAPE',unit:'J/kg',band:v=>v>=2500?'knmi-bad':v>=1000?'knmi-warn':'knmi-ok'},
+    {names:['CINS using virtual','Convective Inhibition'],lbl:'CIN',unit:'J/kg',band:v=>v<=-100?'knmi-warn':'knmi-ok'},
+    {names:['LIFT computed','Lifted index'],lbl:'Lifted Index',unit:'',band:v=>v<=-6?'knmi-bad':v<=-3?'knmi-warn':'knmi-ok'},
+    {names:['Showalter'],lbl:'Showalter',unit:'',band:v=>v<=-3?'knmi-bad':v<=0?'knmi-warn':'knmi-ok'},
+    {names:['K index'],lbl:'K Index',unit:'',band:v=>v>=35?'knmi-bad':v>=26?'knmi-warn':'knmi-ok'},
+    {names:['Totals totals'],lbl:'Total Totals',unit:'',band:v=>v>=50?'knmi-bad':v>=44?'knmi-warn':'knmi-ok'},
+    {names:['SWEAT'],lbl:'SWEAT',unit:'',band:v=>v>=300?'knmi-warn':'knmi-ok'},
+    {names:['Precipitable water'],lbl:'Precip Water',unit:'mm',band:v=>v>=50?'knmi-warn':'knmi-ok'},
+    {names:['Pres [hPa] of the Lifted'],lbl:'LCL',unit:'hPa',band:null},
+    {names:['thickness'],lbl:'1000–500 Thk',unit:'m',band:null}
+  ];
+  let h='',shown=0;
+  defs.forEach(d=>{
+    const v=sondeVal(ind,d.names);
+    if(v==null)return;
+    const cls=d.band?d.band(v):'';
+    const disp=Math.abs(v)>=100?Math.round(v):+v.toFixed(1);
+    h+=`<div class="knmi-tile ${cls}"><div class="knmi-tile-lbl">${d.lbl}</div><div class="knmi-tile-val">${disp}${d.unit?` <small>${d.unit}</small>`:''}</div></div>`;
+    shown++;
+  });
+  return shown?h:'';
+}
+/* Simple T/Td vs log-pressure profile chart. */
+function sondeProfileSvg(profile){
+  if(!profile||profile.length<8) return '';
+  const W=340,H=300,padL=34,padR=10,padT=14,padB=26;
+  const pts=profile.filter(r=>r.p>=100&&r.p<=1050);
+  const temps=[];
+  pts.forEach(r=>{temps.push(r.t); if(r.td!=null)temps.push(r.td);});
+  let tmin=Math.floor((Math.min(...temps)-3)/10)*10, tmax=Math.ceil((Math.max(...temps)+3)/10)*10;
+  const lp=Math.log;
+  const y=p=>padT+((lp(p)-lp(100))/(lp(1050)-lp(100)))*(H-padT-padB);
+  const x=t=>padL+((t-tmin)/(tmax-tmin))*(W-padL-padR);
+  function path(get){
+    let d='',started=false;
+    pts.forEach(r=>{const v=get(r); if(v==null){started=false;return;} d+=(started?'L':'M')+x(v).toFixed(1)+' '+y(r.p).toFixed(1)+' '; started=true;});
+    return d.trim();
+  }
+  let grid='';
+  [1000,850,700,500,400,300,250,200,150,100].forEach(p=>{
+    if(p>1050)return;
+    const yy=y(p).toFixed(1);
+    grid+=`<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" stroke="rgba(85,193,255,0.1)" stroke-width="1"/><text x="3" y="${(+yy+3).toFixed(1)}" class="knmi-ax">${p}</text>`;
+  });
+  for(let t=tmin;t<=tmax;t+=10){
+    const xx=x(t).toFixed(1);
+    grid+=`<line x1="${xx}" y1="${padT}" x2="${xx}" y2="${H-padB}" stroke="rgba(85,193,255,0.06)" stroke-width="1"/><text x="${xx}" y="${H-8}" class="knmi-ax" text-anchor="middle">${t}°</text>`;
+  }
+  return `<div class="knmi-chart sonde-chart">
+    <div class="knmi-chart-hd"><span class="knmi-chart-title">T / Td profile</span><span class="knmi-chart-cur"><span style="color:#ff9d5c">— T</span> <span style="color:#5ad1a0">— Td</span></span></div>
+    <svg viewBox="0 0 ${W} ${H}" class="knmi-chart-svg" style="aspect-ratio:${W}/${H};">
+      ${grid}
+      <path d="${path(r=>r.td)}" fill="none" stroke="#5ad1a0" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="${path(r=>r.t)}" fill="none" stroke="#ff9d5c" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+    </svg>
+  </div>`;
+}
+function renderRadiosondeFromText(text,srcUrl){
+  const parsed=parseSounding(text);
+  if(!parsed) return false;
+  const content=byId('sondeContent');
+  if(!content) return false;
+  const a=analyzeSounding(parsed.ind);
+  const tiles=sondeTilesHtml(parsed.ind);
+  content.innerHTML=
+    `<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`+
+    `<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
+      `<div class="forecast-label">Sounding analysis — ${escapeHtml(a.headline)}</div>`+
+      `<div class="forecast-text">${escapeHtml(a.text)||'No stability indices found in this sounding.'}</div>`+
+    `</div></div>`+
+    (tiles?`<div class="sonde-grid">${tiles}</div>`:'')+
+    sondeProfileSvg(parsed.profile)+
+    (srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding data (Univ. of Wyoming) ↗</a>`:'');
+  return true;
+}
+async function loadRadiosonde(force){
+  const status=byId('sondeStatus'), content=byId('sondeContent');
+  if(!status||!content) return;
+  if(__sondeLoading) return;
+  __sondeLoading=true;
+  try{
+    if(!content.dataset.painted){
+      try{
+        const c=JSON.parse(localStorage.getItem(SONDE_CACHE_KEY));
+        if(c&&c.text&&renderRadiosondeFromText(c.text,c.url)){content.dataset.painted='1';status.textContent='Showing cached sounding · refreshing…';}
+      }catch(e){}
+    } else if(!force){ __sondeLoading=false; return; } // already loaded this session; manual ↻ forces
+    status.className='knmi-status';
+    if(!content.dataset.painted) status.textContent='Loading latest TNCC radiosonde…';
+    for(const dt of sondeCycles()){
+      for(const url of sondeUrls(dt)){
+        const out=await fetchWithRetries(url,1);
+        if(out&&out.ok&&out.text&&renderRadiosondeFromText(out.text,url)){
+          try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({text:out.text,url,cachedAt:Date.now()}));}catch(e){}
+          content.dataset.painted='1';
+          status.className='knmi-status ok';
+          status.textContent='✓ Latest sounding loaded · '+new Date().toLocaleTimeString();
+          return;
+        }
+      }
+    }
+    if(content.dataset.painted){
+      status.textContent='⚠ Refresh failed — showing the last loaded sounding.';
+    } else {
+      status.className='knmi-status err';
+      status.textContent='⚠ Could not load the TNCC sounding (source unreachable). Try ↻ Sounding.';
+    }
+  } finally {
+    __sondeLoading=false;
+  }
+}
+document.getElementById('sonde-refresh-btn')?.addEventListener('click',async()=>{
+  const btn=document.getElementById('sonde-refresh-btn');
+  btn.disabled=true;
+  try{await loadRadiosonde(true);}catch(e){}
+  setTimeout(()=>btn.disabled=false,800);
 });
 
 /* ── VENTUSKY precipitation (HARMONIE Caribbean) ──
@@ -4055,7 +4300,7 @@ setInterval(refreshMapWindows, 10*60*1000); // every 10 minutes
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosondeFromText,loadRadiosonde};
 })();
 </script>
 
