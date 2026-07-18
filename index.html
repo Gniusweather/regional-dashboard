@@ -1586,7 +1586,7 @@ async function toggleNotifications(){
       try{localStorage.setItem('rwc-notify-enabled','1');}catch(e){}
       const on=STATIONS.filter(ic=>SETTINGS.stations[ic]&&SETTINGS.stations[ic].alarm);
       const gustPart=on.length?`Gust alarms: ${on.join(', ')}. `:'';
-      showAppNotification('Regional Weather Centre',{body:`Notifications enabled. ${gustPart}Significant weather (RA/SHRA/TS/TSRA) at ${WX_NOTIFY_ICAOS.join(', ')} always notifies. Adjust in ⚙ Settings.`,icon:'icon-192.png',badge:'icon-192.png'});
+      showAppNotification('Regional Weather Centre',{body:`Notifications enabled. ${gustPart}Significant conditions (wind ≥${WX_NOTIFY_WIND_KT}kt, any weather, gust ≥${WX_NOTIFY_GUST_KT}kt, or vis ≤${WX_NOTIFY_VIS_M}m) at ${WX_NOTIFY_ICAOS.join(', ')} always notifies. Adjust in ⚙ Settings.`,icon:'icon-192.png',badge:'icon-192.png'});
     }
   } else {
     notificationsEnabled=false;
@@ -1635,20 +1635,36 @@ function sendWindNotification(icao,parsed,windSpeed){
     badge:'icon-192.png'
   });
 }
-/* Default weather notification — always active for these stations whenever
-   notifications are enabled, independent of the per-station gust alarm
-   config. Fires on RA, SHRA, TS, TSRA (any +/- intensity). */
+/* Default "significant conditions" notification — always active for these
+   stations whenever notifications are enabled, independent of the
+   per-station gust/wind alarm config. Fires on any ONE of:
+     - sustained wind ≥ WX_NOTIFY_WIND_KT
+     - any weather phenomenon reported at all (not just RA/SHRA/TS/TSRA)
+     - gust ≥ WX_NOTIFY_GUST_KT (no thunderstorm required)
+     - visibility ≤ WX_NOTIFY_VIS_M */
 const WX_NOTIFY_ICAOS=['TNCA','TNCB','TNCC'];
-function hasNotifyWx(wxText){
+const WX_NOTIFY_WIND_KT=15;
+const WX_NOTIFY_GUST_KT=35;
+const WX_NOTIFY_VIS_M=9000;
+function hasAnyWx(wxText){
   const txt=String(wxText||'').trim();
-  if(!txt||txt==='--')return false;
-  return txt.split(/\s+/).some(tok=>/^[+-]?(?:TSRA|SHRA|TS|RA)$/i.test(tok));
+  return !!txt&&txt!=='--';
 }
-function sendWxNotification(icao,parsed){
-  ntfyPublish(`${icao} — significant weather`,`${parsed.wx} reported at ${parsed.time}.\n${parsed.raw||''}`,['zap'],4);
+function significantConditionReasons(parsed,windSpeed,gustValue){
+  const reasons=[];
+  if(typeof windSpeed==='number'&&windSpeed>=WX_NOTIFY_WIND_KT)reasons.push(`sustained wind ${windSpeed}kt`);
+  if(hasAnyWx(parsed.wx))reasons.push(`weather ${parsed.wx}`);
+  if(typeof gustValue==='number'&&gustValue>=WX_NOTIFY_GUST_KT)reasons.push(`gust ${gustValue}kt`);
+  if(!isNaN(parsed.visMin)&&parsed.visMin<=WX_NOTIFY_VIS_M)reasons.push(`visibility ${parsed.visMin}m`);
+  return reasons;
+}
+function sendWxNotification(icao,parsed,reasons){
+  const reasonStr=reasons.join(', ');
+  const body=`${reasonStr}.\n${parsed.time?'Reported at '+parsed.time+'. ':''}${parsed.raw||''}`;
+  ntfyPublish(`${icao} — significant conditions`,body,['zap'],4);
   if(!notificationsEnabled||!('Notification' in window)||Notification.permission!=='granted')return;
-  showAppNotification(`🌧 ${icao} — significant weather`,{
-    body:`${parsed.wx} reported at ${parsed.time}.\n${parsed.raw||''}`,
+  showAppNotification(`🌧 ${icao} — significant conditions`,{
+    body,
     tag:`wx-alert-${icao}`,
     requireInteraction:true,
     silent:false,
@@ -2574,8 +2590,12 @@ function renderMetar(icao,raw){
     // ── SUSTAINED WIND ALARM ── per-station: enabled + sustained wind speed threshold, no gust/TS required.
     const isWindAlarmCondition=!!(acfg&&acfg.windAlarm&&windSpeed>=(acfg.windThreshold!=null?acfg.windThreshold:20));
     if(isNew&&isWindAlarmCondition&&!window.__suppressAlarms){playSpecialAlarm();sendWindNotification(icao,parsed,windSpeed);}
-    // ── DEFAULT WEATHER NOTIFICATION ── TNCA/TNCB/TNCC, RA/SHRA/TS/TSRA (any intensity), always on when notifications are enabled.
-    if(isNew&&WX_NOTIFY_ICAOS.includes(icao)&&hasNotifyWx(parsed.wx)&&!window.__suppressAlarms){sendWxNotification(icao,parsed);}
+    // ── DEFAULT SIGNIFICANT CONDITIONS NOTIFICATION ── TNCA/TNCB/TNCC, always on when notifications are enabled.
+    // Skipped when the (louder, dedicated) Special/Wind alarm above already fired for this same report, to avoid double-notifying.
+    if(isNew&&WX_NOTIFY_ICAOS.includes(icao)&&!isSpecialAlarmCondition&&!isWindAlarmCondition&&!window.__suppressAlarms){
+      const sigReasons=significantConditionReasons(parsed,windSpeed,gustValue);
+      if(sigReasons.length)sendWxNotification(icao,parsed,sigReasons);
+    }
     if(typeof windSpeed==='number'){state.stats.winds.push(windSpeed);if(state.stats.winds.length>200)state.stats.winds.shift();}
     if(parsed.td&&typeof parsed.td==='string'){const m=parsed.td.match(/^(M?)(\d{1,2})\/(M?)(\d{1,2})$/);if(m){const sign=m[1]==='M'?-1:1;const tempVal=sign*parseInt(m[2],10);state.stats.temps.push(tempVal);if(state.stats.temps.length>200)state.stats.temps.shift();}}
     if(!isNaN(parsed.visMin)){state.stats.vis.push(parsed.visMin);if(state.stats.vis.length>200)state.stats.vis.shift();}
@@ -3439,12 +3459,12 @@ function computeNotifyStatus(){
     const w=document.getElementById(`set-st-${ic}-windalarm`);
     return w ? w.checked : !!(SETTINGS.stations[ic]&&SETTINGS.stations[ic].windAlarm);
   });
-  // The wx-based notification (RA/SHRA/TS/TSRA at TNCA/TNCB/TNCC) is always
+  // The significant-conditions notification (TNCA/TNCB/TNCC) is always
   // active once notifications are on, regardless of per-station gust/wind alarms.
   const parts=[];
   if(on.length) parts.push('gust alarm — '+on.join(', '));
   if(windOn.length) parts.push('sustained wind alarm — '+windOn.join(', '));
-  parts.push('significant weather (RA/SHRA/TS/TSRA) — '+WX_NOTIFY_ICAOS.join(', '));
+  parts.push(`significant conditions (wind ≥${WX_NOTIFY_WIND_KT}kt / any wx / gust ≥${WX_NOTIFY_GUST_KT}kt / vis ≤${WX_NOTIFY_VIS_M}m) — `+WX_NOTIFY_ICAOS.join(', '));
   return {cls:'status-ok', msg:'✅ Will notify for: '+parts.join(' · ')+(Notification.permission==='granted'?'':' (permission will be requested on Save)')};
 }
 function renderNotifyStatus(){
