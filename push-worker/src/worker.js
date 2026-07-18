@@ -3,8 +3,9 @@
  * Runs on a Cron Trigger, independent of whether the dashboard page is open.
  * Polls METAR for TNCA/TNCB/TNCC/TNCM/SVMI/SVVA, and for every subscribed
  * device sends a real Web Push notification (RFC 8291/8188, no library) when:
- *   - TNCA, TNCB or TNCC reports RA/SHRA/TS/TSRA (any intensity)      [default]
- *   - a station the device configured with a gust alarm meets its threshold
+ *   - TNCA, TNCB or TNCC reports sustained wind ≥15kt, any weather at all,
+ *     gust ≥35kt, or visibility ≤9000m                                [default]
+ *   - a station the device configured with a gust or wind alarm meets its threshold
  *
  * Storage: a single KV key holds the JSON array of subscription records.
  * Fine for a personal dashboard with a handful of devices; migrate to one
@@ -64,13 +65,28 @@ async function fetchMetar(icao) {
     const wxTokens = raw.split(/\s+/).filter(tok =>
       /^(?:\+|-)?(?:VC)?(?:TS|VCTS|VCSH|TSRA|SH|SHRA|RA|DZ|SN|FG|BR|HZ|SQ|PO)/i.test(tok));
     const wx = wxTokens.join(' ') || '--';
-    return { time, gust, windSpeed, wind, wx, raw };
+    const visTokens = raw.split(/\s+/).filter(tok => /^\d{4}(?:[NSEW]{1,2})?$/.test(tok));
+    const visNums = visTokens.map(v => parseInt(v, 10)).filter(n => !isNaN(n));
+    const visMin = visNums.length ? Math.min(...visNums) : null;
+    return { time, gust, windSpeed, wind, wx, visMin, raw };
   } catch (e) { return null; }
 }
-function hasNotifyWx(wxText) {
+/* Mirrors the client's hasAnyWx(): true if any weather phenomenon is reported at all. */
+function hasAnyWx(wxText) {
   const txt = String(wxText || '').trim();
-  if (!txt || txt === '--') return false;
-  return txt.split(/\s+/).some(tok => /^[+-]?(?:TSRA|SHRA|TS|RA)$/i.test(tok));
+  return !!txt && txt !== '--';
+}
+const WX_NOTIFY_WIND_KT = 15;
+const WX_NOTIFY_GUST_KT = 35;
+const WX_NOTIFY_VIS_M = 9000;
+/* Mirrors the client's significantConditionReasons(): any ONE of these firing is enough. */
+function significantConditionReasons(m) {
+  const reasons = [];
+  if (m.windSpeed >= WX_NOTIFY_WIND_KT) reasons.push(`sustained wind ${m.windSpeed}kt`);
+  if (hasAnyWx(m.wx)) reasons.push(`weather ${m.wx}`);
+  if (m.gust >= WX_NOTIFY_GUST_KT) reasons.push(`gust ${m.gust}kt`);
+  if (m.visMin != null && m.visMin <= WX_NOTIFY_VIS_M) reasons.push(`visibility ${m.visMin}m`);
+  return reasons;
 }
 function tsPresent(wxText) {
   return /\b(?:TS|TSRA|VCTS)\b/i.test(String(wxText || ''));
@@ -248,12 +264,12 @@ async function handleScheduled(env) {
   const metars = {};
   for (const icao of STATIONS) metars[icao] = await fetchMetar(icao);
 
-  // ── ntfy channel: default wx alerts (TNCA/TNCB/TNCC RA/SHRA/TS/TSRA) plus
-  //    the classic TNCA gust≥35+TS special alarm and a TNCA sustained
-  //    wind≥20kt alarm. ntfy has no per-subscriber settings (one shared
-  //    topic), so these two thresholds are fixed defaults rather than
-  //    read from any one subscription's Settings — edit here to change them.
-  //    Dedup state kept in KV. ──
+  // ── ntfy channel: TNCA/TNCB/TNCC significant-conditions alert — fires on
+  //    ANY of sustained wind ≥15kt, any weather phenomenon, gust ≥35kt, or
+  //    visibility ≤9000m. ntfy has no per-subscriber settings (one shared
+  //    topic), so this is a fixed default rather than read from any one
+  //    subscription's Settings — edit the WX_NOTIFY_* constants above to
+  //    change it. Dedup state kept in KV. ──
   if (ntfyOn) {
     let last = {};
     try { last = JSON.parse(await env.PUSH_KV.get('ntfy_last_v1')) || {}; } catch (e) { last = {}; }
@@ -261,19 +277,11 @@ async function handleScheduled(env) {
     for (const icao of WX_NOTIFY_ICAOS) {
       const m = metars[icao];
       if (!m || !m.time) continue;
-      if (hasNotifyWx(m.wx) && last[icao + '_wx'] !== m.time) {
-        await publishNtfy(env, `${icao} — significant weather`, `${m.wx} reported at ${m.time}.\n${m.raw}`, 4, ['zap']);
-        last[icao + '_wx'] = m.time; nChanged = true;
+      const reasons = significantConditionReasons(m);
+      if (reasons.length && last[icao + '_sig'] !== m.time) {
+        await publishNtfy(env, `${icao} — significant conditions`, `${reasons.join(', ')}.\n${m.raw}`, 4, ['zap']);
+        last[icao + '_sig'] = m.time; nChanged = true;
       }
-    }
-    const a = metars['TNCA'];
-    if (a && a.time && a.gust >= 35 && tsPresent(a.wx) && last['TNCA_gust'] !== a.time) {
-      await publishNtfy(env, 'Special Alarm — TNCA', `Gust ${a.gust}kt with ${a.wx} — immediate attention required.\n${a.raw}`, 5, ['rotating_light']);
-      last['TNCA_gust'] = a.time; nChanged = true;
-    }
-    if (a && a.time && a.windSpeed >= 20 && last['TNCA_wind'] !== a.time) {
-      await publishNtfy(env, 'Sustained Wind — TNCA', `Sustained wind ${a.windSpeed}kt (${a.wind}).\n${a.raw}`, 4, ['dash']);
-      last['TNCA_wind'] = a.time; nChanged = true;
     }
     if (nChanged) await env.PUSH_KV.put('ntfy_last_v1', JSON.stringify(last));
   }
@@ -289,13 +297,20 @@ async function handleScheduled(env) {
       const m = metars[icao];
       if (!m || !m.time) continue;
 
-      // Default weather notification (TNCA/TNCB/TNCC, RA/SHRA/TS/TSRA) — always on.
-      if (WX_NOTIFY_ICAOS.includes(icao) && hasNotifyWx(m.wx)) {
-        const key = icao + '_wx';
-        if (sub.lastNotified[key] !== m.time) {
+      const cfg = sub.stations && sub.stations[icao];
+      const isSpecialAlarmCondition = !!(cfg && cfg.alarm && m.gust >= (cfg.gust || 35) && (!cfg.requireTS || tsPresent(m.wx)));
+      const isWindAlarmCondition = !!(cfg && cfg.windAlarm && m.windSpeed >= (cfg.windThreshold != null ? cfg.windThreshold : 20));
+
+      // Default significant-conditions notification (TNCA/TNCB/TNCC) — always
+      // on. Skipped when the (louder, dedicated) alarms below already fired
+      // for this same report, to avoid double-notifying this device.
+      if (WX_NOTIFY_ICAOS.includes(icao) && !isSpecialAlarmCondition && !isWindAlarmCondition) {
+        const reasons = significantConditionReasons(m);
+        const key = icao + '_sig';
+        if (reasons.length && sub.lastNotified[key] !== m.time) {
           const r = await sendPush(env, sub, {
-            title: `🌧 ${icao} — significant weather`,
-            body: `${m.wx} reported at ${m.time}.\n${m.raw}`,
+            title: `🌧 ${icao} — significant conditions`,
+            body: `${reasons.join(', ')}.\n${m.raw}`,
             tag: `wx-alert-${icao}`
           });
           if (r.gone) { dead = true; break; }
@@ -304,8 +319,7 @@ async function handleScheduled(env) {
       }
 
       // Per-station gust alarm (mirrors the client's Settings config).
-      const cfg = sub.stations && sub.stations[icao];
-      if (cfg && cfg.alarm && m.gust >= (cfg.gust || 35) && (!cfg.requireTS || tsPresent(m.wx))) {
+      if (isSpecialAlarmCondition) {
         const key = icao + '_gust';
         if (sub.lastNotified[key] !== m.time) {
           const r = await sendPush(env, sub, {
@@ -319,7 +333,7 @@ async function handleScheduled(env) {
       }
 
       // Per-station sustained wind alarm (mirrors the client's Settings config).
-      if (cfg && cfg.windAlarm && m.windSpeed >= (cfg.windThreshold != null ? cfg.windThreshold : 20)) {
+      if (isWindAlarmCondition) {
         const key = icao + '_wind';
         if (sub.lastNotified[key] !== m.time) {
           const r = await sendPush(env, sub, {
