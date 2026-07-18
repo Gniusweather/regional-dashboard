@@ -996,6 +996,8 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
 .set-chk{width:20px;height:20px;accent-color:var(--accent-strong);cursor:pointer;flex-shrink:0;}
 .set-stations{display:flex;flex-direction:column;gap:2px;margin:6px 0 2px;}
 .set-st-row{display:grid;grid-template-columns:1fr 46px 64px 40px;align-items:center;gap:8px;padding:6px 0;}
+.set-st-subrow{padding-top:0;padding-bottom:8px;opacity:0.75;}
+.set-st-subrow .set-st-name{font-size:11px;color:var(--muted);}
 .set-st-head{font-family:var(--cond);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid rgba(85,193,255,0.12);padding-bottom:5px;}
 .set-st-head span{text-align:center;}.set-st-head span:first-child{text-align:left;}
 .set-st-name{font-family:var(--mono);font-size:13px;color:#d0e8ff;}
@@ -1459,9 +1461,9 @@ const DEFAULT_SETTINGS={
   visAlertM:5000,       // metres — highlight visibility at/below this (global)
   beepOnUpdate:true,    // soft beep on every new METAR
   alarmVolume:0.05,     // gain 0–0.1
-  stations:{}           // per-station alarm config: {alarm,gust,requireTS}
+  stations:{}           // per-station alarm config: {alarm,gust,requireTS,windAlarm,windThreshold}
 };
-STATIONS.forEach(function(ic){ DEFAULT_SETTINGS.stations[ic]={alarm:(ic==='TNCA'),gust:35,requireTS:true}; });
+STATIONS.forEach(function(ic){ DEFAULT_SETTINGS.stations[ic]={alarm:(ic==='TNCA'),gust:35,requireTS:true,windAlarm:false,windThreshold:20}; });
 let SETTINGS=JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
 try{
   const _s=JSON.parse(localStorage.getItem(SETTINGS_KEY))||JSON.parse(localStorage.getItem('rwc-settings-v1'));
@@ -1615,6 +1617,18 @@ function sendAlarmNotification(icao,parsed){
   showAppNotification(`⚠ Special Alarm — ${icao}`,{
     body:`Gust ${parsed.gust||extractWindSpeedFromWindBase(parsed.windBase)}kt with ${parsed.wx} — immediate attention required.\n${parsed.raw||''}`,
     tag:`special-alarm-${icao}`,
+    requireInteraction:true,
+    silent:false,
+    icon:'icon-192.png',
+    badge:'icon-192.png'
+  });
+}
+function sendWindNotification(icao,parsed,windSpeed){
+  ntfyPublish(`Sustained Wind — ${icao}`,`Sustained wind ${windSpeed}kt (${parsed.wind}).\n${parsed.raw||''}`,['dash'],4);
+  if(!notificationsEnabled||!('Notification' in window)||Notification.permission!=='granted')return;
+  showAppNotification(`💨 Sustained Wind — ${icao}`,{
+    body:`Sustained wind ${windSpeed}kt (${parsed.wind}).\n${parsed.raw||''}`,
+    tag:`wind-alarm-${icao}`,
     requireInteraction:true,
     silent:false,
     icon:'icon-192.png',
@@ -2557,6 +2571,9 @@ function renderMetar(icao,raw){
     const acfg=SETTINGS.stations[icao];
     const isSpecialAlarmCondition=!!(acfg&&acfg.alarm&&gustValue>=acfg.gust&&(!acfg.requireTS||tsPresent));
     if(isNew&&isSpecialAlarmCondition&&!window.__suppressAlarms){playSpecialAlarm();sendAlarmNotification(icao,parsed);}
+    // ── SUSTAINED WIND ALARM ── per-station: enabled + sustained wind speed threshold, no gust/TS required.
+    const isWindAlarmCondition=!!(acfg&&acfg.windAlarm&&windSpeed>=(acfg.windThreshold!=null?acfg.windThreshold:20));
+    if(isNew&&isWindAlarmCondition&&!window.__suppressAlarms){playSpecialAlarm();sendWindNotification(icao,parsed,windSpeed);}
     // ── DEFAULT WEATHER NOTIFICATION ── TNCA/TNCB/TNCC, RA/SHRA/TS/TSRA (any intensity), always on when notifications are enabled.
     if(isNew&&WX_NOTIFY_ICAOS.includes(icao)&&hasNotifyWx(parsed.wx)&&!window.__suppressAlarms){sendWxNotification(icao,parsed);}
     if(typeof windSpeed==='number'){state.stats.winds.push(windSpeed);if(state.stats.winds.length>200)state.stats.winds.shift();}
@@ -3418,10 +3435,15 @@ function computeNotifyStatus(){
     const a=document.getElementById(`set-st-${ic}-alarm`);
     return a ? a.checked : !!(SETTINGS.stations[ic]&&SETTINGS.stations[ic].alarm);
   });
+  const windOn=STATIONS.filter(ic=>{
+    const w=document.getElementById(`set-st-${ic}-windalarm`);
+    return w ? w.checked : !!(SETTINGS.stations[ic]&&SETTINGS.stations[ic].windAlarm);
+  });
   // The wx-based notification (RA/SHRA/TS/TSRA at TNCA/TNCB/TNCC) is always
-  // active once notifications are on, regardless of per-station gust alarms.
+  // active once notifications are on, regardless of per-station gust/wind alarms.
   const parts=[];
   if(on.length) parts.push('gust alarm — '+on.join(', '));
+  if(windOn.length) parts.push('sustained wind alarm — '+windOn.join(', '));
   parts.push('significant weather (RA/SHRA/TS/TSRA) — '+WX_NOTIFY_ICAOS.join(', '));
   return {cls:'status-ok', msg:'✅ Will notify for: '+parts.join(' · ')+(Notification.permission==='granted'?'':' (permission will be requested on Save)')};
 }
@@ -3471,6 +3493,12 @@ function populateSettingsForm(){
          `<input type="checkbox" class="set-chk" id="set-st-${ic}-alarm">`+
          `<input type="number" id="set-st-${ic}-gust" min="5" max="120" step="1">`+
          `<input type="checkbox" class="set-chk" id="set-st-${ic}-ts">`+
+         `</div>`+
+         `<div class="set-st-row set-st-subrow" data-icao="${ic}">`+
+         `<span class="set-st-name">↳ Sustained wind</span>`+
+         `<input type="checkbox" class="set-chk" id="set-st-${ic}-windalarm">`+
+         `<input type="number" id="set-st-${ic}-windkt" min="5" max="120" step="1">`+
+         `<span></span>`+
          `</div>`;
     });
     wrap.innerHTML=h;
@@ -3479,6 +3507,8 @@ function populateSettingsForm(){
     STATIONS.forEach(ic=>{
       const a=document.getElementById(`set-st-${ic}-alarm`);
       if(a) a.addEventListener('change', renderNotifyStatus);
+      const w=document.getElementById(`set-st-${ic}-windalarm`);
+      if(w) w.addEventListener('change', renderNotifyStatus);
     });
   }
   STATIONS.forEach(ic=>{
@@ -3486,6 +3516,8 @@ function populateSettingsForm(){
     const a=document.getElementById(`set-st-${ic}-alarm`); if(a) a.checked=!!c.alarm;
     const g=document.getElementById(`set-st-${ic}-gust`); if(g) g.value=(c.gust!=null?c.gust:35);
     const t=document.getElementById(`set-st-${ic}-ts`); if(t) t.checked=!!c.requireTS;
+    const w=document.getElementById(`set-st-${ic}-windalarm`); if(w) w.checked=!!c.windAlarm;
+    const wk=document.getElementById(`set-st-${ic}-windkt`); if(wk) wk.value=(c.windThreshold!=null?c.windThreshold:20);
   });
   const vis=document.getElementById('set-vis'); if(vis) vis.value=SETTINGS.visAlertM;
   const beep=document.getElementById('set-beep'); if(beep) beep.checked=!!SETTINGS.beepOnUpdate;
@@ -3531,10 +3563,12 @@ function closeSettings(){
 }
 async function saveSettingsFromForm(){
   STATIONS.forEach(ic=>{
-    const c=SETTINGS.stations[ic]||(SETTINGS.stations[ic]={alarm:false,gust:35,requireTS:true});
+    const c=SETTINGS.stations[ic]||(SETTINGS.stations[ic]={alarm:false,gust:35,requireTS:true,windAlarm:false,windThreshold:20});
     const a=document.getElementById(`set-st-${ic}-alarm`); if(a) c.alarm=a.checked;
     const g=document.getElementById(`set-st-${ic}-gust`); if(g){ const v=parseInt(g.value,10); if(!isNaN(v)) c.gust=Math.min(120,Math.max(5,v)); }
     const t=document.getElementById(`set-st-${ic}-ts`); if(t) c.requireTS=t.checked;
+    const w=document.getElementById(`set-st-${ic}-windalarm`); if(w) c.windAlarm=w.checked;
+    const wk=document.getElementById(`set-st-${ic}-windkt`); if(wk){ const v=parseInt(wk.value,10); if(!isNaN(v)) c.windThreshold=Math.min(120,Math.max(5,v)); }
   });
   const vis=document.getElementById('set-vis'); if(vis){ const v=parseInt(vis.value,10); if(!isNaN(v)) SETTINGS.visAlertM=Math.min(9999,Math.max(0,v)); }
   const beep=document.getElementById('set-beep'); if(beep) SETTINGS.beepOnUpdate=beep.checked;

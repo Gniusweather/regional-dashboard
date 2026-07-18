@@ -56,12 +56,15 @@ async function fetchMetar(icao) {
     if (!raw) return null;
     const tm = raw.match(/\b(\d{2})(\d{2})(\d{2})Z\b/);
     const time = tm ? `${tm[2]}:${tm[3]}Z` : null;
+    const windM = raw.match(/\b(?:VRB|\d{3})(\d{2,3})(?:G(\d{2,3}))?KT\b/i);
+    const windSpeed = windM ? parseInt(windM[1], 10) : 0;
+    const wind = windM ? windM[0] : '';
     const gustM = raw.match(/\b(?:VRB|\d{3})\d{2}G(\d{2,3})KT\b/i);
     const gust = gustM ? parseInt(gustM[1], 10) : 0;
     const wxTokens = raw.split(/\s+/).filter(tok =>
       /^(?:\+|-)?(?:VC)?(?:TS|VCTS|VCSH|TSRA|SH|SHRA|RA|DZ|SN|FG|BR|HZ|SQ|PO)/i.test(tok));
     const wx = wxTokens.join(' ') || '--';
-    return { time, gust, wx, raw };
+    return { time, gust, windSpeed, wind, wx, raw };
   } catch (e) { return null; }
 }
 function hasNotifyWx(wxText) {
@@ -246,7 +249,11 @@ async function handleScheduled(env) {
   for (const icao of STATIONS) metars[icao] = await fetchMetar(icao);
 
   // ── ntfy channel: default wx alerts (TNCA/TNCB/TNCC RA/SHRA/TS/TSRA) plus
-  //    the classic TNCA gust≥35+TS special alarm. Dedup state kept in KV. ──
+  //    the classic TNCA gust≥35+TS special alarm and a TNCA sustained
+  //    wind≥20kt alarm. ntfy has no per-subscriber settings (one shared
+  //    topic), so these two thresholds are fixed defaults rather than
+  //    read from any one subscription's Settings — edit here to change them.
+  //    Dedup state kept in KV. ──
   if (ntfyOn) {
     let last = {};
     try { last = JSON.parse(await env.PUSH_KV.get('ntfy_last_v1')) || {}; } catch (e) { last = {}; }
@@ -263,6 +270,10 @@ async function handleScheduled(env) {
     if (a && a.time && a.gust >= 35 && tsPresent(a.wx) && last['TNCA_gust'] !== a.time) {
       await publishNtfy(env, 'Special Alarm — TNCA', `Gust ${a.gust}kt with ${a.wx} — immediate attention required.\n${a.raw}`, 5, ['rotating_light']);
       last['TNCA_gust'] = a.time; nChanged = true;
+    }
+    if (a && a.time && a.windSpeed >= 20 && last['TNCA_wind'] !== a.time) {
+      await publishNtfy(env, 'Sustained Wind — TNCA', `Sustained wind ${a.windSpeed}kt (${a.wind}).\n${a.raw}`, 4, ['dash']);
+      last['TNCA_wind'] = a.time; nChanged = true;
     }
     if (nChanged) await env.PUSH_KV.put('ntfy_last_v1', JSON.stringify(last));
   }
@@ -301,6 +312,20 @@ async function handleScheduled(env) {
             title: `⚠ Special Alarm — ${icao}`,
             body: `Gust ${m.gust}kt with ${m.wx} — immediate attention required.\n${m.raw}`,
             tag: `special-alarm-${icao}`
+          });
+          if (r.gone) { dead = true; break; }
+          sub.lastNotified[key] = m.time; changed = true;
+        }
+      }
+
+      // Per-station sustained wind alarm (mirrors the client's Settings config).
+      if (cfg && cfg.windAlarm && m.windSpeed >= (cfg.windThreshold != null ? cfg.windThreshold : 20)) {
+        const key = icao + '_wind';
+        if (sub.lastNotified[key] !== m.time) {
+          const r = await sendPush(env, sub, {
+            title: `💨 Sustained Wind — ${icao}`,
+            body: `Sustained wind ${m.windSpeed}kt (${m.wind}).\n${m.raw}`,
+            tag: `wind-alarm-${icao}`
           });
           if (r.gone) { dead = true; break; }
           sub.lastNotified[key] = m.time; changed = true;
