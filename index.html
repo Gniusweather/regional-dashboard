@@ -738,6 +738,8 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
 .sonde-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
 .skewt-chart{max-width:460px;}
 .skewt-svg{aspect-ratio:440/520;}
+.skewt-img-wrap{background:#fff;border-radius:8px;padding:6px;line-height:0;}
+.skewt-img{display:block;width:100%;height:auto;border-radius:4px;}
 .sonde-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10px;color:rgba(200,225,255,0.5);font-family:var(--mono);}
 .sonde-legend i{display:inline-block;width:12px;height:2px;margin-right:4px;vertical-align:middle;}
 .sonde-link{color:var(--accent);font-family:var(--mono);font-size:11px;text-decoration:none;align-self:flex-start;}
@@ -4059,6 +4061,13 @@ function sondeUrls(dt){
     `https://weather.uwyo.edu/wsgi/sounding?datetime=${Y}-${M}-${D}%20${H}:00:00&id=${SONDE_STNM}&type=TEXT:LIST`
   ];
 }
+/* The University of Wyoming's own rendered Skew-T chart for the same cycle —
+   used as the primary diagram; falls back to our own skewTSvg() if it 404s
+   (e.g. no BUFR source for that hour) or fails to load. */
+function sondeSkewtPngUrl(dt){
+  const Y=dt.getUTCFullYear(), M=pad(dt.getUTCMonth()+1), D=pad(dt.getUTCDate()), H=pad(dt.getUTCHours());
+  return `https://weather.uwyo.edu/wsgi/sounding?datetime=${Y}-${M}-${D}%20${H}:00:00&id=${SONDE_STNM}&type=PNG:SKEWT&src=BUFR`;
+}
 function sondeDecodeEntities(s){return String(s||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&');}
 function parseSounding(rawHtml){
   const html=sondeDecodeEntities(rawHtml);
@@ -4318,13 +4327,19 @@ function skewTSvg(profile){
     <div class="sonde-legend"><span><i style="background:rgba(245,158,11,0.5)"></i>dry adiabat</span><span><i style="background:rgba(63,207,130,0.5)"></i>moist adiabat</span><span><i style="background:rgba(168,85,247,0.5)"></i>mixing ratio</span></div>
   </div>`;
 }
-function renderRadiosondeFromText(text,srcUrl){
+function renderRadiosondeFromText(text,srcUrl,cycleIso){
   const parsed=parseSounding(text);
   if(!parsed) return false;
   const content=byId('sondeContent');
   if(!content) return false;
   const a=analyzeSounding(parsed.ind);
   const tiles=sondeTilesHtml(parsed.ind);
+  const cycleDt=cycleIso?new Date(cycleIso):null;
+  const pngUrl=cycleDt&&!isNaN(cycleDt)?sondeSkewtPngUrl(cycleDt):null;
+  const chartHtml=pngUrl
+    ? `<div class="skewt-chart"><div class="knmi-chart-hd"><span class="knmi-chart-title">Skew-T log-P</span><span class="knmi-chart-cur">Univ. of Wyoming</span></div>`+
+      `<div class="skewt-img-wrap"><img class="skewt-img" src="${escapeHtml(pngUrl)}" alt="Skew-T log-P diagram for TNCC" loading="lazy" referrerpolicy="no-referrer"/></div></div>`
+    : skewTSvg(parsed.profile);
   content.innerHTML=
     `<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`+
     `<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
@@ -4332,8 +4347,16 @@ function renderRadiosondeFromText(text,srcUrl){
       `<div class="forecast-text">${escapeHtml(a.text)||'No stability indices found in this sounding.'}</div>`+
     `</div></div>`+
     (tiles?`<div class="sonde-grid">${tiles}</div>`:'')+
-    skewTSvg(parsed.profile)+
+    chartHtml+
     (srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding data (Univ. of Wyoming) ↗</a>`:'');
+  // If Wyoming's own chart 404s or otherwise fails, fall back to our own SVG rather than a broken-image icon.
+  if(pngUrl){
+    const img=content.querySelector('.skewt-img');
+    if(img)img.addEventListener('error',()=>{
+      const wrap=img.closest('.skewt-chart');
+      if(wrap)wrap.outerHTML=skewTSvg(parsed.profile);
+    },{once:true});
+  }
   return true;
 }
 async function loadRadiosonde(force){
@@ -4345,7 +4368,7 @@ async function loadRadiosonde(force){
     if(!content.dataset.painted){
       try{
         const c=JSON.parse(localStorage.getItem(SONDE_CACHE_KEY));
-        if(c&&c.text&&renderRadiosondeFromText(c.text,c.url)){content.dataset.painted='1';status.textContent='Showing cached sounding · refreshing…';}
+        if(c&&c.text&&renderRadiosondeFromText(c.text,c.url,c.cycleIso)){content.dataset.painted='1';status.textContent='Showing cached sounding · refreshing…';}
       }catch(e){}
     } else if(!force){ __sondeLoading=false; return; } // already loaded this session; manual ↻ forces
     status.className='knmi-status';
@@ -4353,8 +4376,8 @@ async function loadRadiosonde(force){
     for(const dt of sondeCycles()){
       for(const url of sondeUrls(dt)){
         const out=await fetchWithRetries(url,1);
-        if(out&&out.ok&&out.text&&renderRadiosondeFromText(out.text,url)){
-          try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({text:out.text,url,cachedAt:Date.now()}));}catch(e){}
+        if(out&&out.ok&&out.text&&renderRadiosondeFromText(out.text,url,dt.toISOString())){
+          try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({text:out.text,url,cycleIso:dt.toISOString(),cachedAt:Date.now()}));}catch(e){}
           content.dataset.painted='1';
           status.className='knmi-status ok';
           status.textContent='✓ Latest sounding loaded · '+new Date().toLocaleTimeString();
@@ -4431,7 +4454,7 @@ setInterval(refreshMapWindows, 10*60*1000); // every 10 minutes
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosondeFromText,loadRadiosonde,skewTSvg,skewTheta,skewTempOnDryAdiabat,skewWsat,skewMoistAdiabatPoints};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosondeFromText,loadRadiosonde,skewTSvg,skewTheta,skewTempOnDryAdiabat,skewWsat,skewMoistAdiabatPoints,sondeSkewtPngUrl};
 })();
 </script>
 
