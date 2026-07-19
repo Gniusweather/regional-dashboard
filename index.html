@@ -730,11 +730,6 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
 .knmi-chart-svg .knmi-ax-now{fill:rgba(255,255,255,0.55);font-size:9px;font-family:var(--mono);}
 .knmi-chart-empty{height:90px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;font-style:italic;}
 
-/* ── RADIOSONDE (Maps tab) ── */
-.sonde-link-card{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px;}
-.sonde-link-txt{font-family:var(--mono);font-size:12px;color:rgba(200,225,255,0.7);}
-.sonde-link-btn{color:var(--accent);font-family:var(--mono);font-size:12px;text-decoration:none;border:1px solid var(--accent);border-radius:8px;padding:8px 14px;white-space:nowrap;}
-.sonde-link-btn:hover{background:var(--accent);color:#04121c;}
 
 /* ── TAF FORECAST CARDS ── */
 .taf-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));gap:16px;padding:16px;}
@@ -1357,15 +1352,6 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
           <iframe title="Windy waves — ABC islands" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
             data-src="https://embed.windy.com/embed2.html?lat=12.19&lon=-68.96&detailLat=12.19&detailLon=-68.96&zoom=6&level=surface&overlay=waves&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
         </div>
-      </div>
-
-      <!-- Radiosonde — link out to the University of Wyoming upper-air sounding for TNCC (Hato, 78988) -->
-      <div class="section-header" style="margin-top:16px;">
-        <div class="section-title">Radiosonde · TNCC Curaçao (78988)</div>
-      </div>
-      <div class="table-card sonde-link-card">
-        <span class="sonde-link-txt">🎈 Latest upper-air sounding — 78988 TNCC Hato, Curaçao</span>
-        <a id="sondeLinkBtn" class="sonde-link-btn" href="https://weather.uwyo.edu/upperair/sounding.html" target="_blank" rel="noopener">Open Skew-T on Univ. of Wyoming ↗</a>
       </div>
     </div>
 
@@ -4017,19 +4003,6 @@ function switchTab(name){
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.addEventListener('click',()=>switchTab(btn.dataset.tab));
 });
-
-/* Radiosonde link — points straight at the latest 00Z/12Z cycle's rendered
-   Skew-T (the exact URL pattern confirmed to work when opened directly).
-   Skips a cycle younger than ~75min since Wyoming hasn't published it yet. */
-(function(){
-  const link=document.getElementById('sondeLinkBtn');
-  if(!link) return;
-  const now=Date.now();
-  let dt=new Date(Date.UTC(new Date(now).getUTCFullYear(),new Date(now).getUTCMonth(),new Date(now).getUTCDate(),new Date(now).getUTCHours()>=12?12:0,0,0));
-  if(now-dt.getTime()<75*60*1000) dt=new Date(dt.getTime()-12*3600*1000);
-  const Y=dt.getUTCFullYear(),M=pad(dt.getUTCMonth()+1),D=pad(dt.getUTCDate()),H=pad(dt.getUTCHours());
-  link.href=`https://weather.uwyo.edu/wsgi/sounding?datetime=${Y}-${M}-${D}%20${H}:00:00&id=78988&type=PNG:SKEWT&src=BUFR`;
-})();
 
 /* ── VENTUSKY precipitation (HARMONIE Caribbean) ──
    NOTE: no t= start-time param — the embed renders blank when the requested
