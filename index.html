@@ -4347,37 +4347,69 @@ function skewTSvg(profile){
     <div class="sonde-legend"><span><i style="background:rgba(245,158,11,0.5)"></i>dry adiabat</span><span><i style="background:rgba(63,207,130,0.5)"></i>moist adiabat</span><span><i style="background:rgba(168,85,247,0.5)"></i>mixing ratio</span></div>
   </div>`;
 }
-function renderRadiosondeFromText(text,srcUrl,cycleIso){
-  const parsed=parseSounding(text);
-  if(!parsed) return false;
+/* Test-load an image URL directly (no CORS proxy involved — <img> doesn't
+   need one to display, just to read pixels, which we never do). Resolves
+   true/false, never rejects. */
+function sondeLoadImage(url,timeoutMs){
+  return new Promise(resolve=>{
+    const img=new Image();
+    let done=false;
+    const finish=ok=>{ if(done)return; done=true; resolve(ok); };
+    img.onload=()=>finish(true);
+    img.onerror=()=>finish(false);
+    img.referrerPolicy='no-referrer-when-downgrade';
+    img.src=url;
+    setTimeout(()=>finish(false),timeoutMs||6000);
+  });
+}
+/* Find the newest cycle whose Wyoming-rendered chart actually loads. */
+async function sondeFindWorkingPng(){
+  for(const dt of sondeCycles()){
+    const url=sondeSkewtPngUrl(dt);
+    if(await sondeLoadImage(url,6000)) return {url,dt};
+  }
+  return null;
+}
+/* Independently, find the newest cycle whose TEXT data parses — used only
+   for the indices/analysis tiles, never gates whether the chart image shows. */
+async function sondeFindParsedText(){
+  for(const dt of sondeCycles()){
+    for(const url of sondeUrls(dt)){
+      try{
+        const text=await sondeFetchRaw(url);
+        const parsed=parseSounding(text);
+        if(parsed) return {parsed,url,dt};
+      }catch(e){}
+    }
+  }
+  return null;
+}
+/* Render whatever combination of {pngUrl, parsed, srcUrl} is available. The
+   chart image is shown whenever pngUrl is present, full stop — it does not
+   depend on the indices text having parsed. Falls back to our own SVG only
+   when Wyoming's own chart couldn't be loaded for any candidate cycle. */
+function renderRadiosonde(opts){
   const content=byId('sondeContent');
   if(!content) return false;
-  const a=analyzeSounding(parsed.ind);
-  const tiles=sondeTilesHtml(parsed.ind);
-  const cycleDt=cycleIso?new Date(cycleIso):null;
-  const pngUrl=cycleDt&&!isNaN(cycleDt)?sondeSkewtPngUrl(cycleDt):null;
-  const chartHtml=pngUrl
-    ? `<div class="skewt-chart"><div class="knmi-chart-hd"><span class="knmi-chart-title">Skew-T log-P</span><span class="knmi-chart-cur">Univ. of Wyoming</span></div>`+
-      `<div class="skewt-img-wrap"><img class="skewt-img" src="${escapeHtml(pngUrl)}" alt="Skew-T log-P diagram for TNCC" loading="lazy" referrerpolicy="no-referrer-when-downgrade"/></div></div>`
-    : skewTSvg(parsed.profile);
-  content.innerHTML=
-    `<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`+
-    `<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
+  const pngUrl=opts&&opts.pngUrl, parsed=opts&&opts.parsed, srcUrl=opts&&opts.srcUrl;
+  let html=`<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed&&parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`;
+  if(parsed){
+    const a=analyzeSounding(parsed.ind);
+    const tiles=sondeTilesHtml(parsed.ind);
+    html+=`<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
       `<div class="forecast-label">Sounding analysis — ${escapeHtml(a.headline)}</div>`+
       `<div class="forecast-text">${escapeHtml(a.text)||'No stability indices found in this sounding.'}</div>`+
-    `</div></div>`+
-    (tiles?`<div class="sonde-grid">${tiles}</div>`:'')+
-    chartHtml+
-    (srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding data (Univ. of Wyoming) ↗</a>`:'');
-  // If Wyoming's own chart 404s or otherwise fails, fall back to our own SVG rather than a broken-image icon.
-  if(pngUrl){
-    const img=content.querySelector('.skewt-img');
-    if(img)img.addEventListener('error',()=>{
-      const wrap=img.closest('.skewt-chart');
-      if(wrap)wrap.outerHTML=skewTSvg(parsed.profile);
-    },{once:true});
+    `</div></div>`+(tiles?`<div class="sonde-grid">${tiles}</div>`:'');
   }
-  return true;
+  if(pngUrl){
+    html+=`<div class="skewt-chart"><div class="knmi-chart-hd"><span class="knmi-chart-title">Skew-T log-P</span><span class="knmi-chart-cur">Univ. of Wyoming</span></div>`+
+      `<div class="skewt-img-wrap"><img class="skewt-img" src="${escapeHtml(pngUrl)}" alt="Skew-T log-P diagram for TNCC" loading="lazy" referrerpolicy="no-referrer-when-downgrade"/></div></div>`;
+  } else if(parsed&&parsed.profile&&parsed.profile.length>=8){
+    html+=skewTSvg(parsed.profile);
+  }
+  html+=(srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding data (Univ. of Wyoming) ↗</a>`:'');
+  content.innerHTML=html;
+  return !!(pngUrl||parsed);
 }
 async function loadRadiosonde(force){
   const status=byId('sondeStatus'), content=byId('sondeContent');
@@ -4388,25 +4420,24 @@ async function loadRadiosonde(force){
     if(!content.dataset.painted){
       try{
         const c=JSON.parse(localStorage.getItem(SONDE_CACHE_KEY));
-        if(c&&c.text&&renderRadiosondeFromText(c.text,c.url,c.cycleIso)){content.dataset.painted='1';status.textContent='Showing cached sounding · refreshing…';}
+        if(c&&(c.pngUrl||c.parsed)&&renderRadiosonde(c)){content.dataset.painted='1';status.textContent='Showing cached sounding · refreshing…';}
       }catch(e){}
     } else if(!force){ __sondeLoading=false; return; } // already loaded this session; manual ↻ forces
     status.className='knmi-status';
     if(!content.dataset.painted) status.textContent='Loading latest TNCC radiosonde…';
-    for(const dt of sondeCycles()){
-      for(const url of sondeUrls(dt)){
-        let text=null;
-        try{ text=await sondeFetchRaw(url); }catch(e){ text=null; }
-        if(text&&renderRadiosondeFromText(text,url,dt.toISOString())){
-          try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({text,url,cycleIso:dt.toISOString(),cachedAt:Date.now()}));}catch(e){}
-          content.dataset.painted='1';
-          status.className='knmi-status ok';
-          status.textContent='✓ Latest sounding loaded · '+new Date().toLocaleTimeString();
-          return;
-        }
-      }
-    }
-    if(content.dataset.painted){
+
+    const [pngResult,textResult]=await Promise.all([sondeFindWorkingPng(),sondeFindParsedText()]);
+    const pngUrl=pngResult?pngResult.url:null;
+    const parsed=textResult?textResult.parsed:null;
+    const srcUrl=(textResult&&textResult.url)||(pngResult&&sondeUrls(pngResult.dt)[1])||null;
+
+    if(pngUrl||parsed){
+      renderRadiosonde({pngUrl,parsed,srcUrl});
+      try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({pngUrl,parsed,srcUrl,cachedAt:Date.now()}));}catch(e){}
+      content.dataset.painted='1';
+      status.className='knmi-status ok';
+      status.textContent='✓ Latest sounding loaded · '+new Date().toLocaleTimeString();
+    } else if(content.dataset.painted){
       status.textContent='⚠ Refresh failed — showing the last loaded sounding.';
     } else {
       status.className='knmi-status err';
@@ -4475,7 +4506,7 @@ setInterval(refreshMapWindows, 10*60*1000); // every 10 minutes
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosondeFromText,loadRadiosonde,skewTSvg,skewTheta,skewTempOnDryAdiabat,skewWsat,skewMoistAdiabatPoints,sondeSkewtPngUrl};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,skewTSvg,skewTheta,skewTempOnDryAdiabat,skewWsat,skewMoistAdiabatPoints,sondeSkewtPngUrl,sondeLoadImage,sondeFindWorkingPng,sondeFindParsedText};
 })();
 </script>
 
