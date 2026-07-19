@@ -735,9 +735,14 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
 .sonde-wrap:empty{display:none;}
 .sonde-head{font-family:var(--mono);font-size:12px;color:rgba(200,225,255,0.8);letter-spacing:0.3px;}
 .sonde-head b{color:var(--accent);}
-.sonde-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
-.skewt-chart{max-width:460px;}
+.sonde-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;}
+.sonde-layout{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;}
+.sonde-diagram{flex:1 1 440px;min-width:280px;max-width:560px;}
+.sonde-side{flex:1 1 240px;min-width:200px;display:flex;flex-direction:column;gap:12px;}
+.skewt-chart{max-width:560px;}
 .skewt-svg{aspect-ratio:440/520;}
+.skewt-frame-wrap{background:#fff;border-radius:8px;overflow:hidden;margin-top:4px;}
+.skewt-frame{width:100%;height:470px;border:0;display:block;background:#fff;}
 .skewt-img-wrap{background:#fff;border-radius:8px;padding:6px;line-height:0;}
 .skewt-img{display:block;width:100%;height:auto;border-radius:4px;}
 .sonde-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10px;color:rgba(200,225,255,0.5);font-family:var(--mono);}
@@ -4347,31 +4352,8 @@ function skewTSvg(profile){
     <div class="sonde-legend"><span><i style="background:rgba(245,158,11,0.5)"></i>dry adiabat</span><span><i style="background:rgba(63,207,130,0.5)"></i>moist adiabat</span><span><i style="background:rgba(168,85,247,0.5)"></i>mixing ratio</span></div>
   </div>`;
 }
-/* Test-load an image URL directly (no CORS proxy involved — <img> doesn't
-   need one to display, just to read pixels, which we never do). Resolves
-   true/false, never rejects. */
-function sondeLoadImage(url,timeoutMs){
-  return new Promise(resolve=>{
-    const img=new Image();
-    let done=false;
-    const finish=ok=>{ if(done)return; done=true; resolve(ok); };
-    img.onload=()=>finish(true);
-    img.onerror=()=>finish(false);
-    img.referrerPolicy='no-referrer-when-downgrade';
-    img.src=url;
-    setTimeout(()=>finish(false),timeoutMs||6000);
-  });
-}
-/* Find the newest cycle whose Wyoming-rendered chart actually loads. */
-async function sondeFindWorkingPng(){
-  for(const dt of sondeCycles()){
-    const url=sondeSkewtPngUrl(dt);
-    if(await sondeLoadImage(url,6000)) return {url,dt};
-  }
-  return null;
-}
-/* Independently, find the newest cycle whose TEXT data parses — used only
-   for the indices/analysis tiles, never gates whether the chart image shows. */
+/* Find the newest cycle whose TEXT data parses — used only for the
+   indices/analysis tiles, never gates whether the chart iframe shows. */
 async function sondeFindParsedText(){
   for(const dt of sondeCycles()){
     for(const url of sondeUrls(dt)){
@@ -4384,32 +4366,48 @@ async function sondeFindParsedText(){
   }
   return null;
 }
-/* Render whatever combination of {pngUrl, parsed, srcUrl} is available. The
-   chart image is shown whenever pngUrl is present, full stop — it does not
-   depend on the indices text having parsed. Falls back to our own SVG only
-   when Wyoming's own chart couldn't be loaded for any candidate cycle. */
+/* Render the sounding: Wyoming's own Skew-T chart in an IFRAME on the left
+   (an iframe renders the page exactly as a browser tab does — whether the
+   endpoint serves a raw PNG or an HTML page that embeds it — which an <img>
+   tag cannot, since <img> pointed at HTML just fails to decode), with the
+   parsed indices/analysis in a column to the RIGHT. opts: {cycleIso, parsed,
+   srcUrl}. Only falls back to our own computed SVG if no cycle is known. */
 function renderRadiosonde(opts){
   const content=byId('sondeContent');
   if(!content) return false;
-  const pngUrl=opts&&opts.pngUrl, parsed=opts&&opts.parsed, srcUrl=opts&&opts.srcUrl;
-  let html=`<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed&&parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`;
+  const parsed=opts&&opts.parsed, srcUrl=opts&&opts.srcUrl;
+  const cycleDt=opts&&opts.cycleIso?new Date(opts.cycleIso):null;
+  const frameUrl=cycleDt&&!isNaN(cycleDt)?sondeSkewtPngUrl(cycleDt):null;
+  if(!frameUrl&&!(parsed&&parsed.profile&&parsed.profile.length>=8)) return false;
+
+  // Right-hand column: analysis headline + colour-banded index tiles.
+  let side;
   if(parsed){
     const a=analyzeSounding(parsed.ind);
     const tiles=sondeTilesHtml(parsed.ind);
-    html+=`<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
-      `<div class="forecast-label">Sounding analysis — ${escapeHtml(a.headline)}</div>`+
+    side=`<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
+      `<div class="forecast-label">Analysis — ${escapeHtml(a.headline)}</div>`+
       `<div class="forecast-text">${escapeHtml(a.text)||'No stability indices found in this sounding.'}</div>`+
     `</div></div>`+(tiles?`<div class="sonde-grid">${tiles}</div>`:'');
+  } else {
+    side=`<div class="forecast-box"><div class="forecast-icon">🎈</div><div class="forecast-body">`+
+      `<div class="forecast-label">Indices</div>`+
+      `<div class="forecast-text">Stability indices are momentarily unavailable — the chart at left is the live sounding.</div>`+
+    `</div></div>`;
   }
-  if(pngUrl){
-    html+=`<div class="skewt-chart"><div class="knmi-chart-hd"><span class="knmi-chart-title">Skew-T log-P</span><span class="knmi-chart-cur">Univ. of Wyoming</span></div>`+
-      `<div class="skewt-img-wrap"><img class="skewt-img" src="${escapeHtml(pngUrl)}" alt="Skew-T log-P diagram for TNCC" loading="lazy" referrerpolicy="no-referrer-when-downgrade"/></div></div>`;
-  } else if(parsed&&parsed.profile&&parsed.profile.length>=8){
-    html+=skewTSvg(parsed.profile);
-  }
-  html+=(srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding data (Univ. of Wyoming) ↗</a>`:'');
-  content.innerHTML=html;
-  return !!(pngUrl||parsed);
+
+  // Left-hand column: the diagram (Wyoming iframe, or our SVG if no cycle).
+  const diagram=frameUrl
+    ? `<div class="skewt-chart"><div class="knmi-chart-hd"><span class="knmi-chart-title">Skew-T log-P</span><span class="knmi-chart-cur">Univ. of Wyoming</span></div>`+
+      `<div class="skewt-frame-wrap"><iframe class="skewt-frame" src="${escapeHtml(frameUrl)}" title="Skew-T log-P — TNCC 78988" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe></div>`+
+      `<a class="sonde-link" href="${escapeHtml(frameUrl)}" target="_blank" rel="noopener">Chart not showing? Open it directly ↗</a></div>`
+    : `<div class="skewt-chart">${skewTSvg(parsed.profile)}</div>`;
+
+  content.innerHTML=
+    `<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed&&parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`+
+    `<div class="sonde-layout"><div class="sonde-diagram">${diagram}</div><div class="sonde-side">${side}</div></div>`+
+    (srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding text data ↗</a>`:'');
+  return true;
 }
 async function loadRadiosonde(force){
   const status=byId('sondeStatus'), content=byId('sondeContent');
@@ -4420,20 +4418,23 @@ async function loadRadiosonde(force){
     if(!content.dataset.painted){
       try{
         const c=JSON.parse(localStorage.getItem(SONDE_CACHE_KEY));
-        if(c&&(c.pngUrl||c.parsed)&&renderRadiosonde(c)){content.dataset.painted='1';status.textContent='Showing cached sounding · refreshing…';}
+        if(c&&(c.cycleIso||c.parsed)&&renderRadiosonde(c)){content.dataset.painted='1';status.textContent='Showing cached sounding · refreshing…';}
       }catch(e){}
     } else if(!force){ __sondeLoading=false; return; } // already loaded this session; manual ↻ forces
     status.className='knmi-status';
     if(!content.dataset.painted) status.textContent='Loading latest TNCC radiosonde…';
 
-    const [pngResult,textResult]=await Promise.all([sondeFindWorkingPng(),sondeFindParsedText()]);
-    const pngUrl=pngResult?pngResult.url:null;
+    // The chart iframe just needs a valid cycle time, which we always have.
+    // The indices are a best-effort text parse on top, and never block the chart.
+    const textResult=await sondeFindParsedText();
     const parsed=textResult?textResult.parsed:null;
-    const srcUrl=(textResult&&textResult.url)||(pngResult&&sondeUrls(pngResult.dt)[1])||null;
+    const cycleDt=(textResult&&textResult.dt)||(sondeCycles()[0]||null);
+    const cycleIso=cycleDt?cycleDt.toISOString():null;
+    const srcUrl=(textResult&&textResult.url)||(cycleDt&&sondeUrls(cycleDt)[1])||null;
 
-    if(pngUrl||parsed){
-      renderRadiosonde({pngUrl,parsed,srcUrl});
-      try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({pngUrl,parsed,srcUrl,cachedAt:Date.now()}));}catch(e){}
+    if(cycleIso||parsed){
+      renderRadiosonde({cycleIso,parsed,srcUrl});
+      try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({cycleIso,parsed,srcUrl,cachedAt:Date.now()}));}catch(e){}
       content.dataset.painted='1';
       status.className='knmi-status ok';
       status.textContent='✓ Latest sounding loaded · '+new Date().toLocaleTimeString();
@@ -4441,7 +4442,7 @@ async function loadRadiosonde(force){
       status.textContent='⚠ Refresh failed — showing the last loaded sounding.';
     } else {
       status.className='knmi-status err';
-      status.textContent='⚠ Could not load the TNCC sounding (source unreachable). Try ↻ Sounding.';
+      status.textContent='⚠ Could not load the TNCC sounding. Try ↻ Sounding.';
     }
   } finally {
     __sondeLoading=false;
@@ -4506,7 +4507,7 @@ setInterval(refreshMapWindows, 10*60*1000); // every 10 minutes
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,skewTSvg,skewTheta,skewTempOnDryAdiabat,skewWsat,skewMoistAdiabatPoints,sondeSkewtPngUrl,sondeLoadImage,sondeFindWorkingPng,sondeFindParsedText};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,skewTSvg,skewTheta,skewTempOnDryAdiabat,skewWsat,skewMoistAdiabatPoints,sondeSkewtPngUrl,sondeFindParsedText};
 })();
 </script>
 
