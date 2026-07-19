@@ -4061,6 +4061,26 @@ function sondeUrls(dt){
     `https://weather.uwyo.edu/wsgi/sounding?datetime=${Y}-${M}-${D}%20${H}:00:00&id=${SONDE_STNM}&type=TEXT:LIST`
   ];
 }
+/* Fetch the sounding page's raw HTML. Deliberately does NOT use the generic
+   robustFetchText()/fetchWithRetries() pipeline used elsewhere — that races in
+   r.jina.ai's reader, which converts pages to markdown and destroys the
+   fixed-width <PRE> table this parser depends on, producing garbled data.
+   Mirrors the KNMI fetchURL() pattern: only sources that pass the original
+   bytes through unchanged. */
+async function sondeFetchRaw(url){
+  const bust=Date.now();
+  const target=url+(url.indexOf('?')>=0?'&':'?')+'_cb='+bust;
+  const TIMEOUT=9000;
+  const tryText=async(u)=>{ const r=await fetchWithTimeout(u,TIMEOUT); if(!r||!r.ok)throw new Error('bad response'); const t=await r.text(); if(!t||!t.trim())throw new Error('empty body'); return t.trim(); };
+  const tryJson=async(u)=>{ const r=await fetchWithTimeout(u,TIMEOUT); if(!r||!r.ok)throw new Error('bad response'); const j=await r.json(); if(!j||typeof j.contents!=='string'||!j.contents.trim())throw new Error('empty contents'); return j.contents.trim(); };
+  const tries=[
+    tryText(target),
+    tryText('https://api.allorigins.win/raw?url='+encodeURIComponent(target)),
+    tryJson('https://api.allorigins.win/get?url='+encodeURIComponent(target)),
+    tryText('https://corsproxy.io/?url='+encodeURIComponent(target))
+  ];
+  return firstResolved(tries);
+}
 /* The University of Wyoming's own rendered Skew-T chart for the same cycle —
    used as the primary diagram; falls back to our own skewTSvg() if it 404s
    (e.g. no BUFR source for that hour) or fails to load. */
@@ -4338,7 +4358,7 @@ function renderRadiosondeFromText(text,srcUrl,cycleIso){
   const pngUrl=cycleDt&&!isNaN(cycleDt)?sondeSkewtPngUrl(cycleDt):null;
   const chartHtml=pngUrl
     ? `<div class="skewt-chart"><div class="knmi-chart-hd"><span class="knmi-chart-title">Skew-T log-P</span><span class="knmi-chart-cur">Univ. of Wyoming</span></div>`+
-      `<div class="skewt-img-wrap"><img class="skewt-img" src="${escapeHtml(pngUrl)}" alt="Skew-T log-P diagram for TNCC" loading="lazy" referrerpolicy="no-referrer"/></div></div>`
+      `<div class="skewt-img-wrap"><img class="skewt-img" src="${escapeHtml(pngUrl)}" alt="Skew-T log-P diagram for TNCC" loading="lazy" referrerpolicy="no-referrer-when-downgrade"/></div></div>`
     : skewTSvg(parsed.profile);
   content.innerHTML=
     `<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`+
@@ -4375,9 +4395,10 @@ async function loadRadiosonde(force){
     if(!content.dataset.painted) status.textContent='Loading latest TNCC radiosonde…';
     for(const dt of sondeCycles()){
       for(const url of sondeUrls(dt)){
-        const out=await fetchWithRetries(url,1);
-        if(out&&out.ok&&out.text&&renderRadiosondeFromText(out.text,url,dt.toISOString())){
-          try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({text:out.text,url,cycleIso:dt.toISOString(),cachedAt:Date.now()}));}catch(e){}
+        let text=null;
+        try{ text=await sondeFetchRaw(url); }catch(e){ text=null; }
+        if(text&&renderRadiosondeFromText(text,url,dt.toISOString())){
+          try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({text,url,cycleIso:dt.toISOString(),cachedAt:Date.now()}));}catch(e){}
           content.dataset.painted='1';
           status.className='knmi-status ok';
           status.textContent='✓ Latest sounding loaded · '+new Date().toLocaleTimeString();
