@@ -736,7 +736,10 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
 .sonde-head{font-family:var(--mono);font-size:12px;color:rgba(200,225,255,0.8);letter-spacing:0.3px;}
 .sonde-head b{color:var(--accent);}
 .sonde-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
-.sonde-chart{max-width:400px;}
+.skewt-chart{max-width:460px;}
+.skewt-svg{aspect-ratio:440/520;}
+.sonde-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10px;color:rgba(200,225,255,0.5);font-family:var(--mono);}
+.sonde-legend i{display:inline-block;width:12px;height:2px;margin-right:4px;vertical-align:middle;}
 .sonde-link{color:var(--accent);font-family:var(--mono);font-size:11px;text-decoration:none;align-self:flex-start;}
 .sonde-link:hover{text-decoration:underline;}
 
@@ -4074,13 +4077,21 @@ function parseSounding(rawHtml){
     const ot=sect.match(/Observation time\s*:\s*(\d{2})(\d{2})(\d{2})\/(\d{2})(\d{2})/);
     if(ot) obsTime=`20${ot[1]}-${ot[2]}-${ot[3]} · ${ot[4]}:${ot[5]}Z`;
   }
-  // Profile rows: fixed-width columns PRES(0-7) HGHT(7-14) TEMP(14-21) DWPT(21-28).
-  // Only accept purely numeric lines so headers/units/index lines never match.
+  // Profile rows: fixed-width columns PRES(0-7) HGHT(7-14) TEMP(14-21) DWPT(21-28)
+  // RELH(28-35) MIXR(35-42) DRCT(42-49) SKNT(49-56). Only accept purely numeric
+  // lines so headers/units/index lines never match.
   const profile=[];
   html.replace(/<[^>]+>/g,'\n').split(/\n/).forEach(line=>{
     if(line.length<21||!/^[\d\s.\-]+$/.test(line.trim())||!line.trim())return;
     const p=parseFloat(line.slice(0,7)), t=parseFloat(line.slice(14,21)), td=parseFloat(line.slice(21,28));
-    if(isFinite(p)&&p>=100&&p<=1100&&isFinite(t)&&t>-120&&t<60) profile.push({p,t,td:(isFinite(td)&&td>-120&&td<60)?td:null});
+    if(!(isFinite(p)&&p>=100&&p<=1100&&isFinite(t)&&t>-120&&t<60))return;
+    const dir=line.length>=49?parseFloat(line.slice(42,49)):NaN;
+    const spd=line.length>=56?parseFloat(line.slice(49,56)):NaN;
+    profile.push({
+      p,t,td:(isFinite(td)&&td>-120&&td<60)?td:null,
+      dir:(isFinite(dir)&&dir>=0&&dir<=360)?dir:null,
+      spd:(isFinite(spd)&&spd>=0&&spd<300)?spd:null
+    });
   });
   if(Object.keys(ind).length<4&&profile.length<8) return null;
   return {obsTime,ind,profile};
@@ -4152,39 +4163,159 @@ function sondeTilesHtml(ind){
   });
   return shown?h:'';
 }
-/* Simple T/Td vs log-pressure profile chart. */
-function sondeProfileSvg(profile){
+/* ── SKEW-T LOG-P THERMODYNAMICS ──
+   Standard formulas (Poisson's equation for dry adiabats, Bolton 1980 for
+   saturation vapor pressure, the moist-adiabatic dT/dP ODE integrated with
+   RK4). All temperatures in °C internally, pressures in hPa. */
+function skewTheta(Tc,P){ return (Tc+273.15)*Math.pow(1000/P,0.286)-273.15; }
+function skewTempOnDryAdiabat(theta,P){ return (theta+273.15)*Math.pow(P/1000,0.286)-273.15; }
+function skewEs(Tc){ return 6.112*Math.exp(17.67*Tc/(Tc+243.5)); }
+function skewWsat(Tc,P){ const e=skewEs(Tc); return 622*e/(P-e); } // g/kg
+function skewTempFromMixingRatio(w,P){
+  const e=w*P/(622+w), lg=Math.log(e/6.112);
+  return 243.5*lg/(17.67-lg);
+}
+/* dT/dP (K per hPa) along a saturated (moist) adiabat. */
+function skewMoistLapse(Tc,P){
+  const Tk=Tc+273.15, ws=skewWsat(Tc,P)/1000;
+  const Rd=287.05,Cp=1005.7,Lv=2501000,eps=0.622;
+  const numer=Rd*Tk+Lv*ws, denom=Cp+(Lv*Lv*ws*eps)/(Rd*Tk*Tk);
+  return (numer/denom)/P;
+}
+function skewMoistAdiabatPoints(T0,P0,Ptop,steps){
+  const pts=[{p:P0,t:T0}]; let T=T0,P=P0;
+  const dP=(Ptop-P0)/steps;
+  for(let i=0;i<steps;i++){
+    const k1=skewMoistLapse(T,P);
+    const k2=skewMoistLapse(T+dP/2*k1,P+dP/2);
+    const k3=skewMoistLapse(T+dP/2*k2,P+dP/2);
+    const k4=skewMoistLapse(T+dP*k3,P+dP);
+    T=T+dP/6*(k1+2*k2+2*k3+k4); P=P+dP;
+    pts.push({p:P,t:T});
+  }
+  return pts;
+}
+/* Standard meteorological wind barb (pennant=50kt, full=10kt, half=5kt).
+   dirDeg is the direction the wind is FROM; the shaft points that way. */
+function skewWindBarb(cx,cy,spdKt,dirDeg,color){
+  if(spdKt==null||dirDeg==null||!isFinite(spdKt)||!isFinite(dirDeg))return '';
+  if(spdKt<3)return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="none" stroke="${color}" stroke-width="1.3"/>`;
+  const shaftLen=24,step=3.6,barbLen=8;
+  const rad=dirDeg*Math.PI/180, dx=Math.sin(rad), dy=-Math.cos(rad);
+  const perp={x:dy,y:-dx};
+  const tipX=cx+dx*shaftLen, tipY=cy+dy*shaftLen;
+  let el=`<line x1="${cx.toFixed(1)}" y1="${cy.toFixed(1)}" x2="${tipX.toFixed(1)}" y2="${tipY.toFixed(1)}" stroke="${color}" stroke-width="1.3"/>`;
+  function ptAtDistFromTip(d){ const f=1-d/shaftLen; return {x:cx+dx*shaftLen*f,y:cy+dy*shaftLen*f}; }
+  let remaining=Math.round(spdKt/5)*5, dist=0;
+  while(remaining>=50){
+    const base=ptAtDistFromTip(dist), far=ptAtDistFromTip(dist+step);
+    const outer={x:base.x+perp.x*barbLen,y:base.y+perp.y*barbLen};
+    el+=`<polygon points="${base.x.toFixed(1)},${base.y.toFixed(1)} ${outer.x.toFixed(1)},${outer.y.toFixed(1)} ${far.x.toFixed(1)},${far.y.toFixed(1)}" fill="${color}"/>`;
+    dist+=step; remaining-=50;
+  }
+  while(remaining>=10){
+    const base=ptAtDistFromTip(dist), tick={x:base.x+perp.x*barbLen,y:base.y+perp.y*barbLen};
+    el+=`<line x1="${base.x.toFixed(1)}" y1="${base.y.toFixed(1)}" x2="${tick.x.toFixed(1)}" y2="${tick.y.toFixed(1)}" stroke="${color}" stroke-width="1.3"/>`;
+    dist+=step; remaining-=10;
+  }
+  if(remaining>=5){
+    const base=ptAtDistFromTip(dist), tick={x:base.x+perp.x*barbLen*0.55,y:base.y+perp.y*barbLen*0.55};
+    el+=`<line x1="${base.x.toFixed(1)}" y1="${base.y.toFixed(1)}" x2="${tick.x.toFixed(1)}" y2="${tick.y.toFixed(1)}" stroke="${color}" stroke-width="1.3"/>`;
+  }
+  return `<g>${el}</g>`;
+}
+/* Full Skew-T log-P diagram: isobars, skewed isotherms, dry & moist
+   adiabats, saturation mixing-ratio lines, the T/Td trace, and wind barbs. */
+function skewTSvg(profile){
   if(!profile||profile.length<8) return '';
-  const W=340,H=300,padL=34,padR=10,padT=14,padB=26;
-  const pts=profile.filter(r=>r.p>=100&&r.p<=1050);
-  const temps=[];
-  pts.forEach(r=>{temps.push(r.t); if(r.td!=null)temps.push(r.td);});
-  let tmin=Math.floor((Math.min(...temps)-3)/10)*10, tmax=Math.ceil((Math.max(...temps)+3)/10)*10;
-  const lp=Math.log;
-  const y=p=>padT+((lp(p)-lp(100))/(lp(1050)-lp(100)))*(H-padT-padB);
-  const x=t=>padL+((t-tmin)/(tmax-tmin))*(W-padL-padR);
-  function path(get){
+  const pts=profile.filter(r=>r.p>=100&&r.p<=1050).sort((a,b)=>b.p-a.p);
+  if(pts.length<8) return '';
+  const W=440,H=520,padL=38,padR=48,padT=16,padB=34;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const Pbot=1050,Ptop=100,lnPbot=Math.log(Pbot),lnPtop=Math.log(Ptop);
+  const yOfP=p=>padT+(lnPbot-Math.log(Math.max(Ptop,Math.min(Pbot,p))))/(lnPbot-lnPtop)*plotH;
+  const Tmin=-40,Tmax=45;
+  const xBase=Tc=>padL+(Tc-Tmin)/(Tmax-Tmin)*plotW;
+  const SKEW=1.05;
+  const yBottomPx=padT+plotH;
+  const xSkew=(Tc,p)=>xBase(Tc)+SKEW*(yBottomPx-yOfP(p));
+
+  const clipId='skewtClip'+Math.random().toString(36).slice(2,8);
+  let bg='',data='',barbs='';
+
+  // Isobars + left labels
+  [1000,925,850,700,500,400,300,250,200,150,100].forEach(p=>{
+    if(p>Pbot||p<Ptop)return;
+    const yy=yOfP(p);
+    bg+=`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="rgba(85,193,255,0.14)" stroke-width="1"/>`+
+        `<text x="2" y="${(yy+3).toFixed(1)}" class="knmi-ax">${p}</text>`;
+  });
+  // Skewed isotherms (every 10°C) with base-axis labels
+  for(let t=-80;t<=50;t+=10){
+    const x1=xSkew(t,Pbot).toFixed(1), x2=xSkew(t,Ptop).toFixed(1);
+    bg+=`<line x1="${x1}" y1="${yBottomPx.toFixed(1)}" x2="${x2}" y2="${padT}" stroke="rgba(85,193,255,0.14)" stroke-width="1"/>`;
+    if(t>=Tmin&&t<=Tmax) bg+=`<text x="${xBase(t).toFixed(1)}" y="${H-8}" class="knmi-ax" text-anchor="middle">${t}°</text>`;
+  }
+  // Dry adiabats (potential temperature, every 20K)
+  for(let th=-20;th<=160;th+=20){
     let d='',started=false;
-    pts.forEach(r=>{const v=get(r); if(v==null){started=false;return;} d+=(started?'L':'M')+x(v).toFixed(1)+' '+y(r.p).toFixed(1)+' '; started=true;});
+    for(let p=Pbot;p>=Ptop-1;p-=(Pbot-Ptop)/24){
+      const Tc=skewTempOnDryAdiabat(th,p);
+      if(Tc<-90||Tc>60){started=false;continue;}
+      d+=(started?'L':'M')+xSkew(Tc,p).toFixed(1)+' '+yOfP(p).toFixed(1)+' ';started=true;
+    }
+    if(d)bg+=`<path d="${d.trim()}" fill="none" stroke="rgba(245,158,11,0.16)" stroke-width="1"/>`;
+  }
+  // Moist adiabats (saturated, starting temps every 4°C at 1000hPa)
+  for(let T0=-20;T0<=32;T0+=4){
+    const mp=skewMoistAdiabatPoints(T0,1000,Ptop,26);
+    let d='',started=false;
+    mp.forEach(pt=>{
+      if(pt.t<-90||pt.t>60){started=false;return;}
+      d+=(started?'L':'M')+xSkew(pt.t,pt.p).toFixed(1)+' '+yOfP(pt.p).toFixed(1)+' ';started=true;
+    });
+    if(d)bg+=`<path d="${d.trim()}" fill="none" stroke="rgba(63,207,130,0.16)" stroke-width="1"/>`;
+  }
+  // Saturation mixing-ratio lines (dashed, lower troposphere only)
+  [1,2,4,7,10,16,24,32].forEach(w=>{
+    let d='',started=false;
+    for(let p=Pbot;p>=350;p-=(Pbot-350)/12){
+      const Tc=skewTempFromMixingRatio(w,p);
+      if(!isFinite(Tc)||Tc<-60||Tc>60){started=false;continue;}
+      d+=(started?'L':'M')+xSkew(Tc,p).toFixed(1)+' '+yOfP(p).toFixed(1)+' ';started=true;
+    }
+    if(d)bg+=`<path d="${d.trim()}" fill="none" stroke="rgba(168,85,247,0.22)" stroke-width="1" stroke-dasharray="3 3"/>`;
+  });
+
+  // T / Td trace
+  function tracePath(get){
+    let d='',started=false;
+    pts.forEach(r=>{ const v=get(r); if(v==null){started=false;return;} d+=(started?'L':'M')+xSkew(v,r.p).toFixed(1)+' '+yOfP(r.p).toFixed(1)+' '; started=true; });
     return d.trim();
   }
-  let grid='';
-  [1000,850,700,500,400,300,250,200,150,100].forEach(p=>{
-    if(p>1050)return;
-    const yy=y(p).toFixed(1);
-    grid+=`<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" stroke="rgba(85,193,255,0.1)" stroke-width="1"/><text x="3" y="${(+yy+3).toFixed(1)}" class="knmi-ax">${p}</text>`;
+  data+=`<path d="${tracePath(r=>r.td)}" fill="none" stroke="#5ad1a0" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>`;
+  data+=`<path d="${tracePath(r=>r.t)}" fill="none" stroke="#ff9d5c" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+
+  // Wind barbs along the right edge — thin out so consecutive barbs stay legible
+  let lastY=-999;
+  pts.forEach(r=>{
+    if(r.spd==null||r.dir==null)return;
+    const yy=yOfP(r.p);
+    if(Math.abs(yy-lastY)<26)return;
+    lastY=yy;
+    barbs+=skewWindBarb(W-padR+22,yy,r.spd,r.dir,'rgba(200,225,255,0.85)');
   });
-  for(let t=tmin;t<=tmax;t+=10){
-    const xx=x(t).toFixed(1);
-    grid+=`<line x1="${xx}" y1="${padT}" x2="${xx}" y2="${H-padB}" stroke="rgba(85,193,255,0.06)" stroke-width="1"/><text x="${xx}" y="${H-8}" class="knmi-ax" text-anchor="middle">${t}°</text>`;
-  }
-  return `<div class="knmi-chart sonde-chart">
-    <div class="knmi-chart-hd"><span class="knmi-chart-title">T / Td profile</span><span class="knmi-chart-cur"><span style="color:#ff9d5c">— T</span> <span style="color:#5ad1a0">— Td</span></span></div>
-    <svg viewBox="0 0 ${W} ${H}" class="knmi-chart-svg" style="aspect-ratio:${W}/${H};">
-      ${grid}
-      <path d="${path(r=>r.td)}" fill="none" stroke="#5ad1a0" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-      <path d="${path(r=>r.t)}" fill="none" stroke="#ff9d5c" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
-    </svg>
+
+  const svg=`<svg viewBox="0 0 ${W} ${H}" class="knmi-chart-svg skewt-svg">
+    <defs><clipPath id="${clipId}"><rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}"/></clipPath></defs>
+    <g clip-path="url(#${clipId})">${bg}${data}</g>
+    ${barbs}
+    <rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="none" stroke="rgba(85,193,255,0.25)" stroke-width="1"/>
+  </svg>`;
+  return `<div class="knmi-chart skewt-chart">
+    <div class="knmi-chart-hd"><span class="knmi-chart-title">Skew-T log-P</span><span class="knmi-chart-cur"><span style="color:#ff9d5c">— T</span> <span style="color:#5ad1a0">— Td</span> <span style="color:rgba(200,225,255,0.85)">╲ wind</span></span></div>
+    ${svg}
+    <div class="sonde-legend"><span><i style="background:rgba(245,158,11,0.5)"></i>dry adiabat</span><span><i style="background:rgba(63,207,130,0.5)"></i>moist adiabat</span><span><i style="background:rgba(168,85,247,0.5)"></i>mixing ratio</span></div>
   </div>`;
 }
 function renderRadiosondeFromText(text,srcUrl){
@@ -4201,7 +4332,7 @@ function renderRadiosondeFromText(text,srcUrl){
       `<div class="forecast-text">${escapeHtml(a.text)||'No stability indices found in this sounding.'}</div>`+
     `</div></div>`+
     (tiles?`<div class="sonde-grid">${tiles}</div>`:'')+
-    sondeProfileSvg(parsed.profile)+
+    skewTSvg(parsed.profile)+
     (srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding data (Univ. of Wyoming) ↗</a>`:'');
   return true;
 }
@@ -4300,7 +4431,7 @@ setInterval(refreshMapWindows, 10*60*1000); // every 10 minutes
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosondeFromText,loadRadiosonde};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosondeFromText,loadRadiosonde,skewTSvg,skewTheta,skewTempOnDryAdiabat,skewWsat,skewMoistAdiabatPoints};
 })();
 </script>
 
