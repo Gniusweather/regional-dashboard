@@ -1365,7 +1365,7 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
       </div>
       <div class="table-card sonde-link-card">
         <span class="sonde-link-txt">🎈 Latest upper-air sounding — 78988 TNCC Hato, Curaçao</span>
-        <a class="sonde-link-btn" href="https://weather.uwyo.edu/upperair/sounding.html?region=samer&TYPE=GIF%3ASKEWT&STNM=78988" target="_blank" rel="noopener">Open Skew-T on Univ. of Wyoming ↗</a>
+        <a id="sondeLinkBtn" class="sonde-link-btn" href="https://weather.uwyo.edu/upperair/sounding.html" target="_blank" rel="noopener">Open Skew-T on Univ. of Wyoming ↗</a>
       </div>
     </div>
 
@@ -4017,6 +4017,19 @@ function switchTab(name){
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.addEventListener('click',()=>switchTab(btn.dataset.tab));
 });
+
+/* Radiosonde link — points straight at the latest 00Z/12Z cycle's rendered
+   Skew-T (the exact URL pattern confirmed to work when opened directly).
+   Skips a cycle younger than ~75min since Wyoming hasn't published it yet. */
+(function(){
+  const link=document.getElementById('sondeLinkBtn');
+  if(!link) return;
+  const now=Date.now();
+  let dt=new Date(Date.UTC(new Date(now).getUTCFullYear(),new Date(now).getUTCMonth(),new Date(now).getUTCDate(),new Date(now).getUTCHours()>=12?12:0,0,0));
+  if(now-dt.getTime()<75*60*1000) dt=new Date(dt.getTime()-12*3600*1000);
+  const Y=dt.getUTCFullYear(),M=pad(dt.getUTCMonth()+1),D=pad(dt.getUTCDate()),H=pad(dt.getUTCHours());
+  link.href=`https://weather.uwyo.edu/wsgi/sounding?datetime=${Y}-${M}-${D}%20${H}:00:00&id=78988&type=PNG:SKEWT&src=BUFR`;
+})();
 
 /* ── VENTUSKY precipitation (HARMONIE Caribbean) ──
    NOTE: no t= start-time param — the embed renders blank when the requested
