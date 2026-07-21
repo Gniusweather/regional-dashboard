@@ -1356,7 +1356,7 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
       </div>
     </div>
 
-    <!-- Maps Section — every map below is centred on Curaçao (12.19/-68.96) at zoom=6, a wider regional view than the tighter zoom=7 header Satellite/Radar. -->
+    <!-- Maps Section — every map below matches the header Satellite/Radar view: mid-ABC-chain centre (12.35/-69.15) at zoom=7, all three islands in frame. -->
     <div id="mapsSection" class="table-wrapper fade-in hidden">
       <div class="section-header">
         <div class="section-title">Weather Maps · ABC Islands</div>
@@ -1365,7 +1365,7 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
         <div class="windy-box windy-rain">
           <span class="windy-lbl">🌧 Rain/Thunder · ABC</span>
           <iframe title="Windy AROME rain — ABC islands" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
-            data-src="https://embed.windy.com/embed2.html?lat=12.19&lon=-68.96&detailLat=12.19&detailLon=-68.96&zoom=6&level=surface&overlay=rain&product=aromeAntilles&menu=&message=&marker=&calendar=&pressure=true&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
+            data-src="https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=7&level=surface&overlay=rain&product=aromeAntilles&menu=&message=&marker=&calendar=&pressure=true&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
         </div>
         <div class="windy-box ventusky-box">
           <span class="windy-lbl">🌧 Precip +3h · Ventusky</span>
@@ -1374,12 +1374,12 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
         <div class="windy-box">
           <span class="windy-lbl">🏜 Dust mass · ABC</span>
           <iframe title="Windy dust mass — ABC islands" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
-            data-src="https://embed.windy.com/embed2.html?lat=12.19&lon=-68.96&detailLat=12.19&detailLon=-68.96&zoom=6&level=surface&overlay=dustsm&product=cams&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
+            data-src="https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=7&level=surface&overlay=dustsm&product=cams&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
         </div>
         <div class="windy-box">
           <span class="windy-lbl">🌊 Waves · ABC</span>
           <iframe title="Windy waves — ABC islands" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
-            data-src="https://embed.windy.com/embed2.html?lat=12.19&lon=-68.96&detailLat=12.19&detailLon=-68.96&zoom=6&level=surface&overlay=waves&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
+            data-src="https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=7&level=surface&overlay=waves&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
         </div>
       </div>
     </div>
@@ -4036,7 +4036,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
    time is rejected, which is what broke this window. It opens at the current
    time on the 3h-precipitation layer; scrub forward with its own time bar. */
 function ventuskySrc(){
-  return 'https://embed.ventusky.com/?p=12.19;-68.96;6&l=rain-3h&m=harmonie_car&lang=en';
+  return 'https://embed.ventusky.com/?p=12.35;-69.15;7&l=rain-3h&m=harmonie_car&lang=en';
 }
 function setVentuskyFrame(){
   var f=document.getElementById('ventuskyFrame');
