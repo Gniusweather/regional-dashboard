@@ -3761,8 +3761,21 @@ const el=id=>document.getElementById(id);
 function safeNum(v){return(v===null||v===undefined||v==='')?null:Number(v);}
 function escapeHtml(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function parseIso(s){if(!s)return null;const d=new Date(s);return isNaN(d)?null:d;}
+/* Station timestamps are Curaçao wall-clock time (AST, UTC-4 year-round) even
+   when the string carries a Z/offset or none at all — ignore any marker and
+   pin the digits to -04:00 so the age check can't be thrown off by however
+   the feed happens to stamp them. */
+function parseStationTime(s){
+  if(!s)return null;
+  s=String(s);
+  let m=s.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);      // YYYY-MM-DD
+  if(m)return new Date(Date.UTC(+m[1],+m[2]-1,+m[3],+m[4]+4,+m[5],+(m[6]||0)));
+  m=s.match(/(\d{2})[-\/](\d{2})[-\/](\d{4})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);  // DD-MM-YYYY
+  if(m)return new Date(Date.UTC(+m[3],+m[2]-1,+m[1],+m[4]+4,+m[5],+(m[6]||0)));
+  return parseIso(s);
+}
 function evaluateStation(row){
-  const now=new Date(),last=parseIso(row.last_updated_iso||row.last_updated);
+  const now=new Date(),last=parseStationTime(row.last_updated_iso||row.last_updated);
   const isStale=!last||(now-last)>120*60*1000;
   const alerts=[];
   let severity=0;
