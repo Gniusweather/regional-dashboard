@@ -309,6 +309,9 @@ body::after{
   position:absolute;left:0;top:-42px;border:0;
   width:100%;height:calc(var(--windy-h) + 42px + 56px);
 }
+/* Header maps are locked — no drag/pinch/scroll-zoom, always this exact
+   view. (Maps-tab windows stay interactive.) */
+.windy-widget-header .windy-box iframe{pointer-events:none;}
 /* Ventusky window: over-size and shift to clip its logo/time bar/menus —
    only the map imagery stays visible. */
 .ventusky-box iframe{position:absolute;left:0;top:-46px;border:0;width:100%;height:calc(var(--windy-h) + 46px + 56px);}
@@ -1197,17 +1200,17 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
 
   <!-- ═══ TOP ROW ═══ -->
   <div class="top-row" role="banner">
-    <!-- Windy satellite + radar — zoomed in tight on just the ABC islands, Curaçao centred (Maps-tab maps use a wider zoom=6 regional view) — zoom=7 recentred on the whole ABC chain so Aruba stays in frame -->
-    <div class="windy-widget" role="region" aria-label="Windy satellite and radar — zoomed in on the ABC islands, Curaçao centred">
+    <!-- Windy satellite + radar — zoomed in tight on just the ABC islands, Curaçao centred (Maps-tab maps use a wider zoom=6 regional view) — zoom=8, locked (no pan/zoom interaction) so it always shows this exact view -->
+    <div class="windy-widget windy-widget-header" role="region" aria-label="Windy satellite and radar — zoomed in on the ABC islands, Curaçao centred">
       <div class="windy-box">
         <span class="windy-lbl">🛰 Satellite · ABC</span>
         <iframe title="Windy satellite — ABC islands" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
-          data-src="https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=7&level=surface&overlay=satellite&product=satellite&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
+          data-src="https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=8&level=surface&overlay=satellite&product=satellite&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
       </div>
       <div class="windy-box">
         <span class="windy-lbl">📡 Radar · ABC</span>
         <iframe title="Windy radar — ABC islands" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
-          data-src="https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=7&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
+          data-src="https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=8&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
       </div>
     </div>
     <!-- Vis Widget (hidden — kept so the visibility code keeps running; value shows in the weather bar) -->
