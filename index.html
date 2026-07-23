@@ -312,6 +312,27 @@ body::after{
 /* Ventusky window: over-size and shift to clip its logo/time bar/menus —
    only the map imagery stays visible. */
 .ventusky-box iframe{position:absolute;left:0;top:-46px;border:0;width:100%;height:calc(var(--windy-h) + 46px + 56px);}
+/* ── NHC TAFB TROPICAL SURFACE ANALYSIS ──
+   Full chart spans roughly 0–31N / 100–10W; cropped here to the 5–27N /
+   75–10W window (Caribbean through the mid-Atlantic ITCZ) via object-fit —
+   an approximation since the source is a plain image with no query params
+   to request a sub-region server-side. */
+.tafb-box{
+  position:relative;border-radius:12px;overflow:hidden;
+  border:1px solid var(--border-bright);background:#fff;
+  box-shadow:var(--shadow);
+  width:100%;aspect-ratio:2.6/1;display:block;
+}
+@media(max-width:700px){.tafb-box{aspect-ratio:1.6/1;}}
+.tafb-box img{
+  position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;object-position:64% 46%;display:block;
+}
+.tafb-fallback{display:none;position:absolute;inset:0;align-items:center;justify-content:center;text-align:center;padding:12px;background:rgba(6,24,42,0.9);color:var(--muted);font-family:var(--mono);font-size:var(--fs-12);}
+.tafb-box.img-failed .tafb-fallback{display:flex;}
+.tafb-box.img-failed img{display:none;}
+.tafb-link-btn{color:var(--accent);font-family:var(--mono);font-size:var(--fs-12);text-decoration:none;border:1px solid var(--accent);border-radius:8px;padding:8px 14px;white-space:nowrap;}
+.tafb-link-btn:hover{background:var(--accent);color:#04121c;}
 /* Labels/names hidden — show only the map image. */
 .windy-lbl{display:none;}
 @media(max-width:960px){.windy-widget{--windy-h:260px;grid-template-columns:1fr 1fr;}}
@@ -1133,8 +1154,10 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
   #taf-table td.station{font-size:var(--fs-18);}
 }
 /* Phone-size typography: tighter table, inline flag, no overflow */
+.scroll-hint{display:none;}
 @media(max-width:600px){
   .table-card{overflow-x:auto;}
+  .scroll-hint{display:inline;color:var(--accent);}
   table{font-size:var(--fs-14);}
   th{font-size:var(--fs-10);padding:9px 6px;letter-spacing:1px;}
   td{font-size:var(--fs-13);padding:8px 6px;}
@@ -1297,14 +1320,14 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
         <table class="metar-table" aria-label="METAR list">
           <thead>
             <tr>
-              <th>ICAO</th><th>Time (Z)</th><th>Wind</th><th>Vis</th><th>Wx</th><th>Cloud</th><th>Temp / Dew</th><th>QNH (hPa / inHg)</th>
+              <th>ICAO</th><th>Time (Z)</th><th>Wind</th><th>Vis</th><th>Wx</th><th>Cloud</th><th>Temp / Dew</th><th>QNH</th>
             </tr>
           </thead>
           <tbody id="metar"></tbody>
         </table>
         <div class="status-bar">
           <span><span class="dot-live"></span><span id="last-updated">METAR last updated: --:--</span></span>
-          <span style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:rgba(106,138,170,0.5);">Click ICAO for 6h history &amp; outlook · Auto-refresh every 30s</span>
+          <span style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:rgba(106,138,170,0.5);">Click ICAO for 6h history &amp; outlook · Auto-refresh every 30s<span class="scroll-hint"> · Swipe table left for QNH →</span></span>
         </div>
       </div>
     </div>
@@ -1382,6 +1405,17 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
             data-src="https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=7&level=surface&overlay=waves&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off"></iframe>
         </div>
       </div>
+
+      <!-- NHC TAFB Tropical Atlantic Surface Analysis — cropped to the Caribbean/mid-Atlantic ITCZ band -->
+      <div class="section-header" style="margin-top:16px;">
+        <div class="section-title">Tropical Surface Analysis · NHC TAFB</div>
+      </div>
+      <div class="tafb-box">
+        <img src="https://www.nhc.noaa.gov/tafb_latest/USA_latest.gif" alt="NHC TAFB tropical Atlantic surface analysis" loading="lazy"
+          onerror="this.parentElement.classList.add('img-failed')">
+        <div class="tafb-fallback">Chart unavailable right now.<br><a class="tafb-link-btn" style="margin-top:8px;" href="https://www.nhc.noaa.gov/tafb_latest/USA_latest.gif" target="_blank" rel="noopener">Open on NHC ↗</a></div>
+      </div>
+      <a class="tafb-link-btn" style="display:inline-block;margin-top:8px;" href="https://www.nhc.noaa.gov/tafb_latest/USA_latest.gif" target="_blank" rel="noopener">View full chart (uncropped) ↗</a>
     </div>
 
   </div>
