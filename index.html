@@ -4104,9 +4104,11 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 /* ── VENTUSKY precipitation (HARMONIE Caribbean) ──
    NOTE: no t= start-time param — the embed renders blank when the requested
    time is rejected, which is what broke this window. It opens at the current
-   time on the 3h-precipitation layer; scrub forward with its own time bar. */
+   time on the 3h-precipitation layer; scrub forward with its own time bar.
+   w=off disables the animated wind-flow layer (confirmed working by the user
+   directly on ventusky.com: https://www.ventusky.com/precipitation-map/3-hours#p=11.45;-69.13;7&m=harmonie_car&w=off). */
 function ventuskySrc(){
-  return 'https://embed.ventusky.com/?p=12.35;-69.15;6&l=rain-3h&m=harmonie_car&lang=en';
+  return 'https://embed.ventusky.com/?p=12.35;-69.15;6&l=rain-3h&m=harmonie_car&w=off&lang=en';
 }
 function setVentuskyFrame(){
   var f=document.getElementById('ventuskyFrame');
