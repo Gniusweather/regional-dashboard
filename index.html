@@ -4162,6 +4162,13 @@ function sondeUrls(dt){
     `https://weather.uwyo.edu/wsgi/sounding?datetime=${Y}-${M}-${D}%20${H}:00:00&id=${SONDE_STNM}&src=UNKNOWN&type=TEXT:LIST`
   ];
 }
+/* Wyoming's own rendered Skew-T chart for a given cycle — linked out to
+   directly, not embedded (past attempts to embed it never rendered
+   reliably). */
+function sondeSkewtPngUrl(dt){
+  const Y=dt.getUTCFullYear(), M=pad(dt.getUTCMonth()+1), D=pad(dt.getUTCDate()), H=pad(dt.getUTCHours());
+  return `https://weather.uwyo.edu/wsgi/sounding?datetime=${Y}-${M}-${D}%20${H}:00:00&id=${SONDE_STNM}&type=PNG:SKEWT&src=BUFR`;
+}
 /* Fetch the sounding page's raw HTML. Deliberately does NOT use the generic
    robustFetchText()/fetchWithRetries() pipeline used elsewhere — that races in
    r.jina.ai's reader, which converts pages to markdown and destroys the
@@ -4216,6 +4223,158 @@ function parseSounding(rawHtml){
 function sondeVal(ind,names){
   for(const n of names){ for(const k in ind){ if(k.toLowerCase().indexOf(n.toLowerCase())>=0) return ind[k]; } }
   return null;
+}
+/* ── STABILITY INDICES computed directly from the T/Td/P profile ──
+   Wyoming's own "sounding indices" text block isn't always present or
+   parseable, so these are computed independently from the profile using
+   standard parcel theory: Poisson's equation for the dry adiabat, Bolton
+   (1980) for saturation vapor pressure, an RK4-integrated moist-adiabatic
+   lapse rate, and the hypsometric equation for layer thickness. Simplified
+   vs. a full operational algorithm — surface-based parcel, plain (not
+   virtual) temperature — but self-contained and accurate enough to cross-
+   check or substitute for the scraped values. */
+function sondeEs(Tc){ return 6.112*Math.exp(17.67*Tc/(Tc+243.5)); }
+function sondeMixR(Tc,P){ const e=sondeEs(Tc); return 622*e/(P-e); } // g/kg
+function sondeTheta(Tc,P){ return (Tc+273.15)*Math.pow(1000/P,0.286)-273.15; }
+function sondeTOnDryAdiabat(theta,P){ return (theta+273.15)*Math.pow(P/1000,0.286)-273.15; }
+function sondeMoistLapse(Tc,P){ // dT/dP, K per hPa, along a saturated adiabat
+  const Tk=Tc+273.15, ws=sondeMixR(Tc,P)/1000;
+  const Rd=287.05,Cp=1005.7,Lv=2501000,eps=0.622;
+  const numer=Rd*Tk+Lv*ws, denom=Cp+(Lv*Lv*ws*eps)/(Rd*Tk*Tk);
+  return (numer/denom)/P;
+}
+/* Linear interpolation of profile key at a target pressure. prof must be
+   sorted surface-first (descending pressure). */
+function sondeInterpEnv(prof,targetP,key){
+  for(let i=0;i<prof.length-1;i++){
+    const a=prof[i],b=prof[i+1];
+    if(a.p>=targetP&&b.p<=targetP){
+      if(a[key]==null||b[key]==null)return a[key]!=null?a[key]:b[key];
+      if(a.p===b.p)return a[key];
+      const f=(a.p-targetP)/(a.p-b.p);
+      return a[key]+(b[key]-a[key])*f;
+    }
+  }
+  return null;
+}
+function sondeComputeIndices(profileRaw){
+  const prof=(profileRaw||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>b.p-a.p);
+  if(prof.length<5) return null;
+  const P0=prof[0].p, T0=prof[0].t, Td0=(prof[0].td!=null?prof[0].td:prof[0].t);
+  const Ptop=prof[prof.length-1].p;
+
+  // LCL — lift the surface parcel dry-adiabatically, holding its mixing
+  // ratio constant, until the parcel is saturated at that mixing ratio.
+  const w0=sondeMixR(Td0,P0), theta0=sondeTheta(T0,P0);
+  let Plcl=P0,Tlcl=T0;
+  for(let P=P0;P>=Ptop;P-=1){
+    const Tp=sondeTOnDryAdiabat(theta0,P);
+    Plcl=P; Tlcl=Tp;
+    if(sondeMixR(Tp,P)<=w0)break;
+  }
+
+  // Parcel temperature above the LCL, via a moist-adiabat ascent tabulated
+  // every 5 hPa (RK4) and interpolated for arbitrary pressures.
+  const moistPts=[{p:Plcl,t:Tlcl}];
+  { let T=Tlcl,P=Plcl; const dP=-5;
+    while(P+dP>=Ptop){
+      const k1=sondeMoistLapse(T,P);
+      const k2=sondeMoistLapse(T+dP/2*k1,P+dP/2);
+      const k3=sondeMoistLapse(T+dP/2*k2,P+dP/2);
+      const k4=sondeMoistLapse(T+dP*k3,P+dP);
+      T=T+dP/6*(k1+2*k2+2*k3+k4); P=P+dP;
+      moistPts.push({p:P,t:T});
+    }
+  }
+  function parcelT(P){
+    if(P>=Plcl) return sondeTOnDryAdiabat(theta0,P);
+    for(let i=0;i<moistPts.length-1;i++){
+      const a=moistPts[i],b=moistPts[i+1];
+      if(a.p>=P&&b.p<=P) return a.t+(b.t-a.t)*((a.p-P)/(a.p-b.p||1));
+    }
+    return moistPts[moistPts.length-1].t;
+  }
+  const envT=P=>sondeInterpEnv(prof,P,'t');
+
+  // CAPE/CIN — per-layer buoyancy (parcel vs. environment) between
+  // consecutive profile levels, using the hypsometric equation for each
+  // layer's thickness. CAPE is the largest contiguous run of positive-
+  // buoyancy layers (LFC→EL) rather than every positive layer in the
+  // profile — a lone layer of positive buoyancy can otherwise appear
+  // anywhere the parcel and environment happen to nearly coincide (most
+  // reliably right at the surface, where they start identical), and
+  // summing every negative layer in the whole profile into CIN massively
+  // overcounts it with the (near-always negative) stratosphere above the
+  // real equilibrium level. CIN is the negative area between the surface
+  // and that chosen run's start (i.e., up to the LFC) only.
+  const Rd=287.05, g=9.80665;
+  const levels=new Set([P0]);
+  prof.forEach(r=>{ if(r.p<P0&&r.p>=Ptop) levels.add(r.p); });
+  if(Plcl<P0&&Plcl>Ptop) levels.add(Plcl);
+  const uniq=[...levels].sort((a,b)=>b-a);
+  const layers=[];
+  for(let i=0;i<uniq.length-1;i++){
+    const Pa=uniq[i],Pb=uniq[i+1];
+    const TaEnv=envT(Pa),TbEnv=envT(Pb);
+    if(TaEnv==null||TbEnv==null||Pa===Pb)continue;
+    const TaP=parcelT(Pa),TbP=parcelT(Pb);
+    const TvAvgK=(TaEnv+TbEnv)/2+273.15;
+    const dz=Rd*TvAvgK/g*Math.log(Pa/Pb);
+    const dT=((TaP-TaEnv)+(TbP-TbEnv))/2;
+    layers.push({dE:g*dT/TvAvgK*dz});
+  }
+  let CAPE=0,CIN=0,bestSum=0,bestStart=-1,i=0;
+  while(i<layers.length){
+    if(layers[i].dE>0){
+      let j=i,sum=0;
+      while(j<layers.length&&layers[j].dE>0){ sum+=layers[j].dE; j++; }
+      if(sum>bestSum){ bestSum=sum; bestStart=i; }
+      i=j;
+    } else i++;
+  }
+  CAPE=bestSum;
+  if(bestStart>0) for(let k=0;k<bestStart;k++) if(layers[k].dE<0) CIN+=layers[k].dE;
+
+  // K-index / Total Totals need T & Td at the 850/700/500 hPa mandatory levels.
+  const T850=envT(850),T700=envT(700),T500=envT(500);
+  const Td850=sondeInterpEnv(prof,850,'td'),Td700=sondeInterpEnv(prof,700,'td');
+  const K=(T850!=null&&T500!=null&&Td850!=null&&T700!=null&&Td700!=null)?(T850-T500)+Td850-(T700-Td700):null;
+  const TT=(T850!=null&&Td850!=null&&T500!=null)?(T850+Td850)-2*T500:null;
+  const LI=(T500!=null)?(T500-parcelT(500)):null;
+
+  // Precipitable water — integrate mixing ratio over pressure while
+  // dewpoint is still reported, stopping once it runs out aloft.
+  let PW=0;
+  for(let i=0;i<prof.length-1;i++){
+    const a=prof[i],b=prof[i+1];
+    if(a.td==null||b.td==null)break;
+    PW+=0.0102*((sondeMixR(a.td,a.p)+sondeMixR(b.td,b.p))/2)*(a.p-b.p);
+  }
+
+  return {
+    CAPE:Math.round(CAPE), CIN:Math.round(CIN),
+    LI:LI!=null?+LI.toFixed(1):null,
+    K:K!=null?Math.round(K):null,
+    TT:TT!=null?Math.round(TT):null,
+    PW:PW>0?+PW.toFixed(1):null,
+    LCL:Math.round(P0-Plcl>=0?Plcl:Plcl) // hPa
+  };
+}
+/* Merge our own computed indices (preferred, always consistent with the
+   plotted profile) with Wyoming's scraped text block (kept only for extras
+   we don't compute, like Showalter/SWEAT/thickness). */
+function sondeMergedIndices(scrapedInd,profile){
+  const c=sondeComputeIndices(profile)||{};
+  const merged={};
+  if(c.CAPE!=null)merged['CAPE using virtual temperature']=c.CAPE;
+  if(c.CIN!=null)merged['CINS using virtual temperature']=c.CIN;
+  if(c.LI!=null)merged['Lifted index']=c.LI;
+  if(c.K!=null)merged['K index']=c.K;
+  if(c.TT!=null)merged['Totals totals index']=c.TT;
+  if(c.PW!=null)merged['Precipitable water [mm]']=c.PW;
+  if(c.LCL!=null)merged['Pres [hPa] of the Lifted Condensation Level']=c.LCL;
+  for(const k in (scrapedInd||{})){ if(!(k in merged))merged[k]=scrapedInd[k]; }
+  return merged;
 }
 /* Interpret the indices into a short plain-language outlook. */
 function analyzeSounding(ind){
@@ -4296,18 +4455,23 @@ async function sondeFindParsedText(){
 function renderRadiosonde(opts){
   const content=byId('sondeContent');
   if(!content) return false;
-  const parsed=opts&&opts.parsed, srcUrl=opts&&opts.srcUrl;
+  const parsed=opts&&opts.parsed, srcUrl=opts&&opts.srcUrl, cycleIso=opts&&opts.cycleIso;
   if(!parsed) return false;
-  const a=analyzeSounding(parsed.ind);
-  const tiles=sondeTilesHtml(parsed.ind);
+  const ind=sondeMergedIndices(parsed.ind,parsed.profile);
+  const a=analyzeSounding(ind);
+  const tiles=sondeTilesHtml(ind);
   const box=`<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
     `<div class="forecast-label">Analysis — ${escapeHtml(a.headline)}</div>`+
     `<div class="forecast-text">${escapeHtml(a.text)||'No stability indices found in this sounding.'}</div>`+
   `</div></div>`;
+  const pngUrl=cycleIso?sondeSkewtPngUrl(new Date(cycleIso)):null;
+  const links=[
+    pngUrl?`<a class="sonde-link" href="${escapeHtml(pngUrl)}" target="_blank" rel="noopener">Skew-T diagram (Univ. of Wyoming) ↗</a>`:'',
+    srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding text data ↗</a>`:''
+  ].filter(Boolean).join('');
   content.innerHTML=
     `<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`+
-    box+(tiles?`<div class="sonde-grid">${tiles}</div>`:'')+
-    (srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding text data ↗</a>`:'');
+    box+(tiles?`<div class="sonde-grid">${tiles}</div>`:'')+links;
   return true;
 }
 async function loadRadiosonde(force){
@@ -4327,9 +4491,10 @@ async function loadRadiosonde(force){
 
     const textResult=await sondeFindParsedText();
     if(textResult&&textResult.parsed){
-      const {parsed,url}=textResult;
-      renderRadiosonde({parsed,srcUrl:url});
-      try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({parsed,srcUrl:url,cachedAt:Date.now()}));}catch(e){}
+      const {parsed,url,dt}=textResult;
+      const cycleIso=dt?dt.toISOString():null;
+      renderRadiosonde({parsed,srcUrl:url,cycleIso});
+      try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({parsed,srcUrl:url,cycleIso,cachedAt:Date.now()}));}catch(e){}
       content.dataset.painted='1';
       status.className='knmi-status ok';
       status.textContent='✓ Latest sounding loaded · '+new Date().toLocaleTimeString();
@@ -4375,7 +4540,7 @@ setInterval(()=>{if(!document.hidden&&mapsSectionEl&&!mapsSectionEl.classList.co
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl};
 })();
 </script>
 
