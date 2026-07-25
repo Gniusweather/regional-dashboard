@@ -2529,7 +2529,14 @@ function parseMetar(raw){
   let age=0;
   if(/^\d{6}Z$/.test(time)){
     const now=new Date(),dd=parseInt(time.slice(0,2),10),hh=parseInt(time.slice(2,4),10),mm=parseInt(time.slice(4,6),10);
-    const tokenUtc=Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),dd,hh,mm);
+    let tokenUtc=Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),dd,hh,mm);
+    // The token carries only a day-of-month, so on the 1st a report from the
+    // 31st lands ~a month in the FUTURE under the current month. Step back a
+    // month in that case, or age goes hugely negative and the >120min stale
+    // check silently stops firing around every month boundary.
+    if(tokenUtc-now.getTime()>6*60*60*1000){
+      tokenUtc=Date.UTC(now.getUTCFullYear(),now.getUTCMonth()-1,dd,hh,mm);
+    }
     age=(Date.now()-tokenUtc)/60000;
   }
   return{time,wind,windBase,vis,visTokens,visMin,wx,cld,td,qnh,gust,age,raw:cleaned};
@@ -3977,13 +3984,21 @@ function addMarkersToMap(rows){
 function renderStationsList(rows){
   const list=el('stationsList');
   if(!rows.length){list.className='';list.innerHTML='<div style="padding:20px;color:var(--muted);font-family:var(--cond);letter-spacing:1px;text-transform:uppercase;font-size:13px;">No stations available</div>';return;}
-  let alertCount=0,staleCount=0,mostRecent=null;
+  let alertCount=0,staleCount=0,mostRecent=null,mostRecentMs=-Infinity;
   list.className='stations-grid';
   list.innerHTML=rows.map(r=>{
     const ev=evaluateStation(r);
     if(ev.alerts.length)alertCount++;
     if(ev.isStale)staleCount++;
-    if(!mostRecent&&r.last_updated)mostRecent=r.last_updated;
+    // Genuinely the newest timestamp — not simply the first row that has one,
+    // since the feed's row order carries no recency guarantee.
+    if(r.last_updated){
+      const ms=(parseStationTime(r.last_updated)||{getTime:()=>NaN}).getTime();
+      if(isFinite(ms)?ms>mostRecentMs:mostRecent==null){
+        if(isFinite(ms))mostRecentMs=ms;
+        mostRecent=r.last_updated;
+      }
+    }
     const tempNum=r.temperature_c!==null?r.temperature_c.toFixed(1):null;
     const hiNum=r.heat_index_c!==null?r.heat_index_c.toFixed(1):null;
     const windKn=r.wind_speed_knots!==null?r.wind_speed_knots:null;
@@ -4388,7 +4403,26 @@ function sondeMergedIndices(scrapedInd,profile){
   if(c.TT!=null)merged['Totals totals index']=c.TT;
   if(c.PW!=null)merged['Precipitable water [mm]']=c.PW;
   if(c.LCL!=null)merged['Pres [hPa] of the Lifted Condensation Level']=c.LCL;
-  for(const k in (scrapedInd||{})){ if(!(k in merged))merged[k]=scrapedInd[k]; }
+  // Drop scraped keys that are aliases of something we just computed. An
+  // exact-key check isn't enough: sondeVal() matches on substrings, so e.g.
+  // Wyoming's "LIFT computed using virtual temperature" is a distinct key
+  // that still wins the 'LIFT computed' lookup ahead of our own 'Lifted
+  // index' — silently showing a scraped value where a computed one was
+  // intended, and disagreeing with the CAPE/analysis from our parcel ascent.
+  const computedAliases=[];
+  if(c.CAPE!=null)computedAliases.push('cape','convective available');
+  if(c.CIN!=null)computedAliases.push('cins','convective inhibition');
+  if(c.LI!=null)computedAliases.push('lift computed','lifted index');
+  if(c.K!=null)computedAliases.push('k index');
+  if(c.TT!=null)computedAliases.push('totals totals');
+  if(c.PW!=null)computedAliases.push('precipitable water');
+  if(c.LCL!=null)computedAliases.push('pres [hpa] of the lifted');
+  for(const k in (scrapedInd||{})){
+    if(k in merged)continue;
+    const lk=k.toLowerCase();
+    if(computedAliases.some(a=>lk.indexOf(a)>=0))continue;
+    merged[k]=scrapedInd[k];
+  }
   return merged;
 }
 /* Interpret the indices into a short plain-language outlook. */
