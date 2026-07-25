@@ -338,21 +338,24 @@ body::after{
 .sonde-link{color:var(--accent);font-family:var(--mono);font-size:var(--fs-11);text-decoration:none;align-self:flex-start;}
 .sonde-link:hover{text-decoration:underline;}
 /* ── NHC TAFB TROPICAL SURFACE ANALYSIS ──
-   Cropped to roughly 0–42N / 80–10W (the equator up through the subtropical
-   high/frontal zone, Lesser Antilles through the mid-Atlantic) via
-   object-fit, re-estimated from the user's own full-chart screenshot —
-   still an approximation since the source is a plain image with no query
-   params to request a sub-region server-side. */
+   Cropped via object-fit to roughly the Lesser Antilles/mid-Atlantic band
+   (~76-4W, ~44N to just south of the equator) — measured this time by
+   reading the lat/lon gridline labels directly off the user's own
+   full-chart and target-crop screenshots (fixed reference points, unlike
+   the H/L pressure systems used for an earlier attempt, which move day to
+   day and turned out to be an unreliable way to match two different
+   charts). Still an approximation since there's no way to fetch and
+   measure the actual source image pixel-for-pixel from this sandbox. */
 .tafb-box{
   position:relative;border-radius:12px;overflow:hidden;
   border:1px solid var(--border-bright);background:#fff;
   box-shadow:var(--shadow);
-  width:100%;aspect-ratio:1.7/1;display:block;
+  width:100%;aspect-ratio:1.15/1;display:block;
 }
-@media(max-width:700px){.tafb-box{aspect-ratio:1.3/1;}}
+@media(max-width:700px){.tafb-box{aspect-ratio:0.95/1;}}
 .tafb-box img{
   position:absolute;inset:0;width:100%;height:100%;
-  object-fit:cover;object-position:61% 58%;display:block;
+  object-fit:cover;object-position:73% 59%;display:block;
 }
 .tafb-fallback{display:none;position:absolute;inset:0;align-items:center;justify-content:center;text-align:center;padding:12px;background:rgba(6,24,42,0.9);color:var(--muted);font-family:var(--mono);font-size:var(--fs-12);}
 .tafb-box.img-failed .tafb-fallback{display:flex;}
