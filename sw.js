@@ -1,5 +1,5 @@
 /* Regional Weather Centre — service worker (app-shell cache, live data passthrough) */
-const CACHE = 'rwc-shell-v4';
+const CACHE = 'rwc-shell-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -32,7 +32,12 @@ self.addEventListener('fetch', e => {
   // fonts and map tiles always go straight to the network so data stays live.
   if (url.origin !== location.origin) return;
   e.respondWith(
-    fetch(req)
+    // cache:'no-store' bypasses the browser's own HTTP cache — without this,
+    // a plain reload (not a hard-refresh) could silently be served straight
+    // from local HTTP cache and never reach the network at all, no matter
+    // how "network-first" this handler looks. That's what was making pushed
+    // changes not show up on a normal reload.
+    fetch(req, { cache: 'no-store' })
       .then(res => {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
