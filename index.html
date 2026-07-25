@@ -1859,22 +1859,31 @@ function loaderEnd(){
 async function fetchWithTimeout(url,timeout=REQUEST_TIMEOUT_MS,opts={}){
   loaderStart();
   const ctrl=new AbortController(),id=setTimeout(()=>ctrl.abort(),timeout);
-  try{ const r=await fetch(url,Object.assign({cache:'no-store',mode:'cors',signal:ctrl.signal},opts)); clearTimeout(id); return r; }
+  // An optional caller-supplied signal is chained into the internal one, so a
+  // race can cancel its losers the moment a winner lands (see robustFetchText).
+  const ext=opts.signal, onExtAbort=()=>ctrl.abort();
+  if(ext){ if(ext.aborted)ctrl.abort(); else ext.addEventListener('abort',onExtAbort,{once:true}); }
+  try{ const r=await fetch(url,Object.assign({cache:'no-store',mode:'cors'},opts,{signal:ctrl.signal})); clearTimeout(id); return r; }
   catch(e){ clearTimeout(id); throw e; }
-  finally{ loaderEnd(); }
+  finally{ if(ext)ext.removeEventListener('abort',onExtAbort); loaderEnd(); }
 }
 /* Race the direct URL and several CORS proxies in parallel; the first source
    that returns a non-empty body wins. Far quicker than trying them one after
    another (a slow/failed source no longer blocks the rest). */
 async function robustFetchText(url){
   const RACE=8000;
-  const direct=async()=>{ const r=await fetchWithTimeout(url,RACE); if(!r||!r.ok)throw 0; const t=await r.text(); if(!t||!t.trim())throw 0; return{ok:true,text:t.trim()}; };
-  const alloRaw=async()=>{ const r=await fetchWithTimeout('https://api.allorigins.win/raw?url='+encodeURIComponent(url),RACE); if(!r||!r.ok)throw 0; const t=await r.text(); if(!t||!t.trim())throw 0; return{ok:true,text:t.trim()}; };
-  const alloJson=async()=>{ const r=await fetchWithTimeout(FALLBACKS[0].prefix+encodeURIComponent(url),RACE); if(!r||!r.ok)throw 0; const j=await r.json(); if(!j||typeof j.contents!=='string'||!j.contents.trim())throw 0; return{ok:true,text:j.contents.trim()}; };
-  const cors=async()=>{ const r=await fetchWithTimeout('https://corsproxy.io/?url='+encodeURIComponent(url),RACE); if(!r||!r.ok)throw 0; const t=await r.text(); if(!t||!t.trim())throw 0; return{ok:true,text:t.trim()}; };
-  const jina=async()=>{ const r=await fetchWithTimeout(FALLBACKS[1].prefix+url.replace(/^https?:\/\//,''),RACE+4000); if(!r||!r.ok)throw 0; const t=await r.text(); if(!t||!t.trim())throw 0; return{ok:true,text:t.trim()}; };
+  // Cancel the losers as soon as one source wins. Without this every fetch
+  // ran all five sources to completion — 5x the requests and bandwidth for
+  // one result, on every station, every refresh.
+  const ac=new AbortController(), s={signal:ac.signal};
+  const direct=async()=>{ const r=await fetchWithTimeout(url,RACE,s); if(!r||!r.ok)throw 0; const t=await r.text(); if(!t||!t.trim())throw 0; return{ok:true,text:t.trim()}; };
+  const alloRaw=async()=>{ const r=await fetchWithTimeout('https://api.allorigins.win/raw?url='+encodeURIComponent(url),RACE,s); if(!r||!r.ok)throw 0; const t=await r.text(); if(!t||!t.trim())throw 0; return{ok:true,text:t.trim()}; };
+  const alloJson=async()=>{ const r=await fetchWithTimeout(FALLBACKS[0].prefix+encodeURIComponent(url),RACE,s); if(!r||!r.ok)throw 0; const j=await r.json(); if(!j||typeof j.contents!=='string'||!j.contents.trim())throw 0; return{ok:true,text:j.contents.trim()}; };
+  const cors=async()=>{ const r=await fetchWithTimeout('https://corsproxy.io/?url='+encodeURIComponent(url),RACE,s); if(!r||!r.ok)throw 0; const t=await r.text(); if(!t||!t.trim())throw 0; return{ok:true,text:t.trim()}; };
+  const jina=async()=>{ const r=await fetchWithTimeout(FALLBACKS[1].prefix+url.replace(/^https?:\/\//,''),RACE+4000,s); if(!r||!r.ok)throw 0; const t=await r.text(); if(!t||!t.trim())throw 0; return{ok:true,text:t.trim()}; };
   try{ return await firstResolved([direct(),alloRaw(),alloJson(),cors(),jina()]); }
   catch(e){ return{ok:false,error:'no content'}; }
+  finally{ ac.abort(); }
 }
 async function fetchWithRetries(url,attempts=MAX_RETRIES){
   let lastErr=null;
@@ -3795,8 +3804,19 @@ document.getElementById('metar')?.addEventListener('click',async e=>{
   }
 });
 
-/* ── INTERVALS ── */
-setInterval(()=>{if(!testMode)refreshAllMetars();},METAR_REFRESH_MS);
+/* ── INTERVALS ──
+   METAR polling pauses while the tab is backgrounded (KNMI and the map
+   windows already did this). Left running it kept firing every 30s forever
+   — real battery and mobile-data cost for updates nobody can see — and it
+   catches up immediately on return, so nothing is lost by pausing. */
+let __lastMetarRefresh=Date.now();
+function refreshMetarsTracked(){ __lastMetarRefresh=Date.now(); return refreshAllMetars(); }
+setInterval(()=>{if(!testMode&&!document.hidden)refreshMetarsTracked();},METAR_REFRESH_MS);
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden||testMode)return;
+  // Catch up on return, but don't re-fetch if a tick already just ran.
+  if(Date.now()-__lastMetarRefresh>=METAR_REFRESH_MS)refreshMetarsTracked();
+});
 setInterval(()=>{if(!testMode&&!document.hidden)loadKnmiData();},5*60*1000); // refresh KNMI (weather bar + tiles + charts + history) every 5 min
 
 /* ════════════════════════════════════════
@@ -3963,6 +3983,12 @@ function markerColorForSeverity(sev){
   if(sev===3)return'#ffb3c7';if(sev===2)return'#ef4444';if(sev===1)return'#f59e0b';return'#3fcf82';
 }
 function addMarkersToMap(rows){
+  // Don't build the Leaflet map + tile layer for a card the user has never
+  // opened — toggleMap initialises it on demand with the same data. This also
+  // stops a failed Leaflet CDN load (offline / installed-PWA use) from throwing
+  // here and aborting the rest of fetchStationsData after the list has painted.
+  const mapCard=document.getElementById('stationsMapCard');
+  if(!map && mapCard && mapCard.classList.contains('hidden')) return;
   if(!map)initMap();
   markersLayer.clearLayers();
   rows.forEach(r=>{
@@ -4154,7 +4180,13 @@ function ensureMapsTabWindowsLoaded(){
 /* Auto-refresh all map windows so radar/satellite/precip stay current. */
 function refreshMapWindows(){
   if(document.hidden) return; // don't reload heavy iframes while backgrounded
+  var mapsOpen = mapsSectionEl && !mapsSectionEl.classList.contains('hidden');
   document.querySelectorAll('.windy-widget iframe').forEach(function(f){
+    // Skip the four Maps-tab windows while that tab is closed — they're full
+    // map apps, and reloading them offscreen is the most expensive thing this
+    // page does periodically. They get a guaranteed fresh load on tab open
+    // (ensureMapsTabWindowsLoaded), so nothing goes stale by skipping here.
+    if(!mapsOpen && f.closest('#mapsSection')) return;
     if(f.id==='ventuskyFrame'){ f.setAttribute('src', ventuskySrc()); return; }
     var s=f.getAttribute('src')||f.getAttribute('data-src'); if(s) f.setAttribute('src', s); // re-assign forces a reload
   });
@@ -4209,15 +4241,17 @@ async function sondeFetchRaw(url){
   const bust=Date.now();
   const target=url+(url.indexOf('?')>=0?'&':'?')+'_cb='+bust;
   const TIMEOUT=9000;
-  const tryText=async(u)=>{ const r=await fetchWithTimeout(u,TIMEOUT); if(!r||!r.ok)throw new Error('bad response'); const t=await r.text(); if(!t||!t.trim())throw new Error('empty body'); return t.trim(); };
-  const tryJson=async(u)=>{ const r=await fetchWithTimeout(u,TIMEOUT); if(!r||!r.ok)throw new Error('bad response'); const j=await r.json(); if(!j||typeof j.contents!=='string'||!j.contents.trim())throw new Error('empty contents'); return j.contents.trim(); };
+  const ac=new AbortController(), s={signal:ac.signal}; // cancel the losers once one wins
+  const tryText=async(u)=>{ const r=await fetchWithTimeout(u,TIMEOUT,s); if(!r||!r.ok)throw new Error('bad response'); const t=await r.text(); if(!t||!t.trim())throw new Error('empty body'); return t.trim(); };
+  const tryJson=async(u)=>{ const r=await fetchWithTimeout(u,TIMEOUT,s); if(!r||!r.ok)throw new Error('bad response'); const j=await r.json(); if(!j||typeof j.contents!=='string'||!j.contents.trim())throw new Error('empty contents'); return j.contents.trim(); };
   const tries=[
     tryText(target),
     tryText('https://api.allorigins.win/raw?url='+encodeURIComponent(target)),
     tryJson('https://api.allorigins.win/get?url='+encodeURIComponent(target)),
     tryText('https://corsproxy.io/?url='+encodeURIComponent(target))
   ];
-  return firstResolved(tries);
+  try{ return await firstResolved(tries); }
+  finally{ ac.abort(); }
 }
 function sondeDecodeEntities(s){return String(s||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&');}
 function parseSounding(rawHtml){
