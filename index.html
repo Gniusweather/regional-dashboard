@@ -1464,6 +1464,7 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
       <div class="table-card">
         <div id="sondeStatus" class="knmi-status">Loading latest TNCC radiosonde…</div>
         <div id="sondeContent" class="sonde-wrap"></div>
+        <div style="padding:0 14px 12px;font-family:var(--mono);font-size:var(--fs-11);color:rgba(200,225,255,0.4);">🔔 Turn on Notify (top of the app) to get alerted here whenever a new sounding cycle publishes.</div>
       </div>
     </div>
 
@@ -4595,18 +4596,38 @@ function renderRadiosonde(opts){
     box+(tiles?`<div class="sonde-grid">${tiles}</div>`:'')+links;
   return true;
 }
+/* Alert once per genuinely new cycle (not on every re-fetch of the same
+   one, and not on the very first load — nothing to compare against yet).
+   Mirrors the gating already used for the other notification types. */
+async function alertNewSounding(parsed,cycleIso,previousCycleIso){
+  if(!previousCycleIso||!cycleIso||cycleIso===previousCycleIso)return;
+  if(!notificationsEnabled||!('Notification' in window)||Notification.permission!=='granted')return;
+  const ind=sondeMergedIndices(parsed.ind,parsed.profile);
+  const a=analyzeSounding(ind);
+  try{
+    await showAppNotification('New TNCC radiosonde · '+(parsed.obsTime||'Curaçao'),{
+      body:(a.text||a.headline||'New sounding data is available.'),
+      tag:'rwc-sonde',icon:'icon-192.png',badge:'icon-192.png'
+    });
+  }catch(e){}
+}
 async function loadRadiosonde(force){
   const status=byId('sondeStatus'), content=byId('sondeContent');
   if(!status||!content) return;
   if(__sondeLoading) return;
   __sondeLoading=true;
   try{
+    let previousCycleIso=null;
     if(!content.dataset.painted){
       try{
         const c=JSON.parse(localStorage.getItem(SONDE_CACHE_KEY));
         if(c&&c.parsed&&renderRadiosonde(c)){content.dataset.painted='1';status.textContent='Showing cached sounding · refreshing…';}
+        if(c&&c.cycleIso)previousCycleIso=c.cycleIso;
       }catch(e){}
-    } else if(!force){ __sondeLoading=false; return; } // already loaded this session; manual ↻ or the hourly check forces
+    } else if(!force){ __sondeLoading=false; return; } // already loaded this session; manual ↻ or the periodic check forces
+    else{
+      try{ const c=JSON.parse(localStorage.getItem(SONDE_CACHE_KEY)); if(c&&c.cycleIso)previousCycleIso=c.cycleIso; }catch(e){}
+    }
     status.className='knmi-status';
     if(!content.dataset.painted) status.textContent='Loading latest TNCC radiosonde…';
 
@@ -4619,6 +4640,7 @@ async function loadRadiosonde(force){
       content.dataset.painted='1';
       status.className='knmi-status ok';
       status.textContent='✓ Latest sounding loaded · '+new Date().toLocaleTimeString();
+      alertNewSounding(parsed,cycleIso,previousCycleIso);
     } else if(content.dataset.painted){
       status.textContent='⚠ Refresh failed — showing the last loaded sounding.';
     } else {
@@ -4635,9 +4657,10 @@ document.getElementById('sonde-refresh-btn')?.addEventListener('click',async()=>
   try{await loadRadiosonde(true);}catch(e){}
   setTimeout(()=>btn.disabled=false,800);
 });
-// Re-check hourly so a new 00Z/12Z cycle is picked up automatically if the
-// Maps tab is left open — no manual refresh needed for daily-fresh data.
-setInterval(()=>{if(!document.hidden&&mapsSectionEl&&!mapsSectionEl.classList.contains('hidden'))loadRadiosonde(true);},60*60*1000);
+// Re-check hourly regardless of which tab is active (not just while Maps is
+// open) so a new 00Z/12Z cycle — and the alert for it — isn't missed just
+// because the user is looking at METAR/TAF/etc. when it's published.
+setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
 
 /* ── INIT ── */
 (async function init(){
