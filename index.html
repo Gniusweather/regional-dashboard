@@ -4667,9 +4667,11 @@ window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllS
 <script>
 (function(){
   if('serviceWorker' in navigator){
+    var swReg=null;
     window.addEventListener('load',function(){
       var hadController = !!navigator.serviceWorker.controller;
       navigator.serviceWorker.register('sw.js').then(function(reg){
+        swReg=reg;
         reg.update();
         setInterval(function(){ reg.update(); }, 60*60*1000); // hourly update check
       }).catch(function(){});
@@ -4678,6 +4680,15 @@ window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllS
         if(refreshing || !hadController) return; // skip the first-install claim
         refreshing=true; window.location.reload();
       });
+    });
+    // Installed home-screen apps on iOS resume from a frozen/suspended state
+    // when reopened — that's not a real page load, so the 'load' listener
+    // above (and its update check) never re-fires just from switching back
+    // to an already-open instance. Re-check for a new version whenever the
+    // app becomes visible again, so updates actually reach installed users
+    // instead of requiring a full force-quit-and-reopen every time.
+    document.addEventListener('visibilitychange',function(){
+      if(!document.hidden&&swReg)swReg.update();
     });
   }
   var deferredPrompt=null;
