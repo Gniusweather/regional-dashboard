@@ -1980,16 +1980,17 @@ async function fetchKnmiVisFast(){
   const FAST_TIMEOUT=7000;
   const bust=Date.now();
   const target=KNMI_BONAIRE_URL+(KNMI_BONAIRE_URL.includes('?')?'&':'?')+'_cb='+bust;
+  const ac=new AbortController(), s={signal:ac.signal}; // cancel the losers once one wins
 
   const tryText=async(url,timeout)=>{
-    const r=await fetchWithTimeout(url,timeout);
+    const r=await fetchWithTimeout(url,timeout,s);
     if(!r||!r.ok)throw new Error('bad response');
     const t=await r.text();
     if(!t||!t.trim())throw new Error('empty body');
     return t.trim();
   };
   const tryAllOriginsJson=async(url,timeout)=>{
-    const r=await fetchWithTimeout(url,timeout);
+    const r=await fetchWithTimeout(url,timeout,s);
     if(!r||!r.ok)throw new Error('bad response');
     const j=await r.json();
     if(!j||typeof j.contents!=='string'||!j.contents.trim())throw new Error('empty contents');
@@ -2008,6 +2009,8 @@ async function fetchKnmiVisFast(){
     return{ok:true,text};
   }catch(e){
     return{ok:false,error:String(e)};
+  }finally{
+    ac.abort();
   }
 }
 
@@ -2064,8 +2067,9 @@ async function fetchURL(url, attempts, opts){
   const bust = Date.now();
   const target = url + (url.indexOf('?')>=0 ? '&' : '?') + '_cb=' + bust;
   const TIMEOUT = 8000;
-  const tryText = async (u)=>{ const r=await fetchWithTimeout(u,TIMEOUT); if(!r||!r.ok) throw new Error('bad response'); const t=await r.text(); if(!t||!t.trim()) throw new Error('empty body'); return t.trim(); };
-  const tryJson = async (u)=>{ const r=await fetchWithTimeout(u,TIMEOUT); if(!r||!r.ok) throw new Error('bad response'); const j=await r.json(); if(!j||typeof j.contents!=='string'||!j.contents.trim()) throw new Error('empty contents'); return j.contents.trim(); };
+  const ac=new AbortController(), s={signal:ac.signal}; // cancel the losers once one wins
+  const tryText = async (u)=>{ const r=await fetchWithTimeout(u,TIMEOUT,s); if(!r||!r.ok) throw new Error('bad response'); const t=await r.text(); if(!t||!t.trim()) throw new Error('empty body'); return t.trim(); };
+  const tryJson = async (u)=>{ const r=await fetchWithTimeout(u,TIMEOUT,s); if(!r||!r.ok) throw new Error('bad response'); const j=await r.json(); if(!j||typeof j.contents!=='string'||!j.contents.trim()) throw new Error('empty contents'); return j.contents.trim(); };
   const tries = [
     tryText('https://api.allorigins.win/raw?url='+encodeURIComponent(target)),
     tryJson('https://api.allorigins.win/get?url='+encodeURIComponent(target)),
@@ -2080,6 +2084,8 @@ async function fetchURL(url, attempts, opts){
     const cached = readPersisted(url);
     if(cached && cached.text) return { ok:true, text:cached.text, stale:true, cachedAt:cached.cachedAt };
     throw e;
+  }finally{
+    ac.abort();
   }
 }
 
