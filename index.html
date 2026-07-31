@@ -337,6 +337,8 @@ body::after{
 .sonde-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;}
 .sonde-link{color:var(--accent);font-family:var(--mono);font-size:var(--fs-11);text-decoration:none;align-self:flex-start;}
 .sonde-link:hover{text-decoration:underline;}
+.sonde-link-big{font-size:var(--fs-13);font-weight:700;border:1px solid var(--accent);border-radius:8px;padding:8px 14px;display:inline-block;margin-right:8px;}
+.sonde-link-big:hover{background:var(--accent);color:#04121c;text-decoration:none;}
 /* ── NHC TAFB TROPICAL SURFACE ANALYSIS ──
    Cropped to roughly the Lesser Antilles/mid-Atlantic band. Deliberately
    NOT object-fit:cover — cover only ever crops the ONE axis where the
@@ -365,21 +367,30 @@ body::after{
 .tafb-link-btn{color:var(--accent);font-family:var(--mono);font-size:var(--fs-12);text-decoration:none;border:1px solid var(--accent);border-radius:8px;padding:8px 14px;white-space:nowrap;}
 .tafb-link-btn:hover{background:var(--accent);color:#04121c;}
 /* ── SKEW-T DIAGRAM (Univ. of Wyoming) ──
-   Embedded via iframe, not <img> — the URL's type=PNG:SKEWT name is
-   misleading, it actually returns a full HTML page with the chart inside,
-   which <img> can't decode (confirmed the hard way in earlier attempts).
-   Unlike the TAFB image above, deliberately NOT cropping out Wyoming's own
-   page chrome (banner/sidebar) here — that took several rounds to dial in
-   even for a single flat image; guessing a 2D crop of an entire unfamiliar
-   page layout blind is much higher-risk. Shows the whole embedded page for
-   now; can be tightened with real feedback once it's confirmed working. */
+   Two sources, tried in order:
+   1. <img> against the classic cgi-bin endpoint (sondeSkewtGifUrl) — old-
+      school image requests there typically emit the image directly with no
+      page template, unlike the newer wsgi rewrite. If it decodes, this is
+      a clean chart with no chrome to crop out at all.
+   2. onerror falls back to an <iframe> against the wsgi endpoint
+      (sondeSkewtPngUrl) — that one's type=PNG:SKEWT name is misleading, it
+      actually returns a full HTML page with the chart inside, which <img>
+      can't decode (confirmed the hard way in earlier attempts), but an
+      iframe renders it fine, chrome and all.
+   Unlike the TAFB image, deliberately not cropping out any chrome the
+   fallback path shows — guessing a 2D crop of an entire unfamiliar page
+   layout blind is much higher-risk than it was even for TAFB's single
+   flat image, which took several rounds with real screenshots to dial in. */
 .skewt-box{
   position:relative;border-radius:12px;overflow:hidden;
   border:1px solid var(--border-bright);background:#fff;
   box-shadow:var(--shadow);
   width:100%;height:520px;display:block;
 }
-.skewt-box iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block;}
+.skewt-box img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;display:block;}
+.skewt-box iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:none;}
+.skewt-box.img-failed img{display:none;}
+.skewt-box.img-failed iframe{display:block;}
 /* Labels/names hidden — show only the map image. */
 .windy-lbl{display:none;}
 @media(max-width:960px){.windy-widget{--windy-h:260px;grid-template-columns:1fr 1fr;}}
@@ -4292,6 +4303,20 @@ function sondeSkewtPngUrl(dt){
   const Y=dt.getUTCFullYear(), M=pad(dt.getUTCMonth()+1), D=pad(dt.getUTCDate()), H=pad(dt.getUTCHours());
   return `https://weather.uwyo.edu/wsgi/sounding?datetime=${Y}-${M}-${D}%20${H}:00:00&id=${SONDE_STNM}&type=PNG:SKEWT&src=BUFR`;
 }
+/* Alternate source: the classic cgi-bin tool (same one already used for the
+   TEXT:LIST data) predates the newer wsgi rewrite that wraps everything in a
+   full HTML page — classic cgi-bin image requests are old-school and
+   typically emit the image directly with an image Content-Type, no page
+   template around it. If that holds here, plain <img> can decode it
+   directly, sidestepping the whole "crop out Wyoming's page chrome"
+   problem entirely. Tried first via <img onerror>, falling back to the
+   wsgi iframe above if it doesn't pan out — unverified from this sandbox
+   either way (no network access to confirm), same as the PNG endpoint was
+   originally. */
+function sondeSkewtGifUrl(dt){
+  const Y=dt.getUTCFullYear(), M=pad(dt.getUTCMonth()+1), D=pad(dt.getUTCDate()), H=pad(dt.getUTCHours());
+  return `https://weather.uwyo.edu/cgi-bin/sounding?region=samer&TYPE=GIF%3ASKEWT&YEAR=${Y}&MONTH=${M}&FROM=${D}${H}&TO=${D}${H}&STNM=${SONDE_STNM}`;
+}
 /* Fetch the sounding page's raw HTML. Deliberately does NOT use the generic
    robustFetchText()/fetchWithRetries() pipeline used elsewhere — that races in
    r.jina.ai's reader, which converts pages to markdown and destroys the
@@ -4608,10 +4633,15 @@ function renderRadiosonde(opts){
     `<div class="forecast-label">Analysis — ${escapeHtml(a.headline)}</div>`+
     `<div class="forecast-text">${escapeHtml(a.text)||'No stability indices found in this sounding.'}</div>`+
   `</div></div>`;
-  const pngUrl=cycleIso?sondeSkewtPngUrl(new Date(cycleIso)):null;
-  const skewtBox=pngUrl?`<div class="skewt-box"><iframe title="Skew-T log-P — TNCC 78988" src="${escapeHtml(pngUrl)}" referrerpolicy="no-referrer-when-downgrade"></iframe></div>`:'';
+  const cycleDt=cycleIso?new Date(cycleIso):null;
+  const gifUrl=cycleDt?sondeSkewtGifUrl(cycleDt):null;
+  const pngUrl=cycleDt?sondeSkewtPngUrl(cycleDt):null;
+  const skewtBox=(gifUrl&&pngUrl)?`<div class="skewt-box">`+
+      `<img alt="Skew-T log-P — TNCC 78988" src="${escapeHtml(gifUrl)}" referrerpolicy="no-referrer-when-downgrade" onerror="this.closest('.skewt-box').classList.add('img-failed')">`+
+      `<iframe title="Skew-T log-P — TNCC 78988" src="${escapeHtml(pngUrl)}" referrerpolicy="no-referrer-when-downgrade"></iframe>`+
+    `</div>`:'';
   const links=[
-    pngUrl?`<a class="sonde-link" href="${escapeHtml(pngUrl)}" target="_blank" rel="noopener">Open Skew-T in a new tab ↗</a>`:'',
+    pngUrl?`<a class="sonde-link sonde-link-big" href="${escapeHtml(pngUrl)}" target="_blank" rel="noopener">Open Skew-T in a new tab ↗</a>`:'',
     srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding text data ↗</a>`:''
   ].filter(Boolean).join('');
   content.innerHTML=
@@ -4707,7 +4737,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,sondeSkewtGifUrl};
 })();
 </script>
 
