@@ -375,20 +375,25 @@ body::after{
    2. onerror falls back to an <iframe> against the wsgi endpoint
       (sondeSkewtPngUrl) — that one's type=PNG:SKEWT name is misleading, it
       actually returns a full HTML page with the chart inside, which <img>
-      can't decode (confirmed the hard way in earlier attempts), but an
-      iframe renders it fine, chrome and all.
-   Unlike the TAFB image, deliberately not cropping out any chrome the
-   fallback path shows — guessing a 2D crop of an entire unfamiliar page
-   layout blind is much higher-risk than it was even for TAFB's single
-   flat image, which took several rounds with real screenshots to dial in. */
+      can't decode, but an iframe renders it fine, chrome and all.
+   The iframe can't use object-fit (only <img>/<video> support it), so a
+   fixed-size iframe just shows the top-left slice of the page at native
+   pixel size — cropped, not scaled. fitSkewtFrame() (JS) simulates
+   object-fit:contain for it instead: render the iframe at a generously
+   oversized guess of the page's real size, then CSS-transform:scale it
+   down to the box's actual width, so the whole page is guaranteed visible
+   (just small) rather than silently cut off. The guessed native size is
+   unverified — this sandbox has no network access to the real page to
+   measure it — biased large on purpose so erring only ever shrinks the
+   result, never crops it. */
 .skewt-box{
   position:relative;border-radius:12px;overflow:hidden;
   border:1px solid var(--border-bright);background:#fff;
   box-shadow:var(--shadow);
-  width:100%;height:520px;display:block;
+  width:100%;height:620px;display:block;
 }
 .skewt-box img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;display:block;}
-.skewt-box iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:none;}
+.skewt-box iframe{position:absolute;top:0;left:0;transform-origin:0 0;border:0;display:none;background:#fff;}
 .skewt-box.img-failed img{display:none;}
 .skewt-box.img-failed iframe{display:block;}
 /* Labels/names hidden — show only the map image. */
@@ -4317,6 +4322,28 @@ function sondeSkewtGifUrl(dt){
   const Y=dt.getUTCFullYear(), M=pad(dt.getUTCMonth()+1), D=pad(dt.getUTCDate()), H=pad(dt.getUTCHours());
   return `https://weather.uwyo.edu/cgi-bin/sounding?region=samer&TYPE=GIF%3ASKEWT&YEAR=${Y}&MONTH=${M}&FROM=${D}${H}&TO=${D}${H}&STNM=${SONDE_STNM}`;
 }
+/* Simulates object-fit:contain for the Skew-T <iframe> fallback, which can't
+   use object-fit itself (only <img>/<video> support it). Renders the iframe
+   at a generously oversized guess of the wsgi sounding page's real size,
+   then transform:scales it down to the box's actual width so the whole
+   page — chart, wind barbs, station text — is guaranteed to fit rather than
+   being cropped to whatever the fixed box size happened to show. */
+function fitSkewtFrame(box){
+  if(!box) return;
+  const frame=box.querySelector('iframe');
+  if(!frame) return;
+  const NATIVE_W=900, NATIVE_H=1450;
+  const boxW=box.clientWidth||NATIVE_W;
+  const scale=boxW/NATIVE_W;
+  frame.style.width=NATIVE_W+'px';
+  frame.style.height=NATIVE_H+'px';
+  frame.style.transform=`scale(${scale})`;
+  box.style.height=Math.round(NATIVE_H*scale)+'px';
+}
+window.fitSkewtFrame=fitSkewtFrame; // inline onerror="" handlers run in global scope, can't see script-local fns
+window.addEventListener('resize',()=>{
+  document.querySelectorAll('.skewt-box.img-failed').forEach(fitSkewtFrame);
+});
 /* Fetch the sounding page's raw HTML. Deliberately does NOT use the generic
    robustFetchText()/fetchWithRetries() pipeline used elsewhere — that races in
    r.jina.ai's reader, which converts pages to markdown and destroys the
@@ -4637,7 +4664,7 @@ function renderRadiosonde(opts){
   const gifUrl=cycleDt?sondeSkewtGifUrl(cycleDt):null;
   const pngUrl=cycleDt?sondeSkewtPngUrl(cycleDt):null;
   const skewtBox=(gifUrl&&pngUrl)?`<div class="skewt-box">`+
-      `<img alt="Skew-T log-P — TNCC 78988" src="${escapeHtml(gifUrl)}" referrerpolicy="no-referrer-when-downgrade" onerror="this.closest('.skewt-box').classList.add('img-failed')">`+
+      `<img alt="Skew-T log-P — TNCC 78988" src="${escapeHtml(gifUrl)}" referrerpolicy="no-referrer-when-downgrade" onerror="this.closest('.skewt-box').classList.add('img-failed');fitSkewtFrame(this.closest('.skewt-box'))">`+
       `<iframe title="Skew-T log-P — TNCC 78988" src="${escapeHtml(pngUrl)}" referrerpolicy="no-referrer-when-downgrade"></iframe>`+
     `</div>`:'';
   const links=[
@@ -4737,7 +4764,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,sondeSkewtGifUrl};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,sondeSkewtGifUrl,fitSkewtFrame};
 })();
 </script>
 
