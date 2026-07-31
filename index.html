@@ -378,14 +378,18 @@ body::after{
       can't decode, but an iframe renders it fine, chrome and all.
    The iframe can't use object-fit (only <img>/<video> support it), so a
    fixed-size iframe just shows the top-left slice of the page at native
-   pixel size — cropped, not scaled. fitSkewtFrame() (JS) simulates
-   object-fit:contain for it instead: render the iframe at a generously
-   oversized guess of the page's real size, then CSS-transform:scale it
-   down to the box's actual width, so the whole page is guaranteed visible
-   (just small) rather than silently cut off. The guessed native size is
-   unverified — this sandbox has no network access to the real page to
-   measure it — biased large on purpose so erring only ever shrinks the
-   result, never crops it. */
+   pixel size — cropped, not scaled. fitSkewtFrame() (JS) crops out the
+   Wyoming banner above the chart and the "Other data" links sidebar to its
+   left, then CSS-transform:scales what's left to fill the box, isolating
+   just the chart — same technique used for the NHC TAFB image (oversized
+   element + explicit offset), calibrated this time from a real device
+   screenshot of the embed rather than guessed blind: banner bottom, sidebar
+   right edge and chart bottom were measured off that screenshot, and the
+   chart's own width was cross-checked against the raw chart image's known
+   800×640 aspect ratio (the crop was previously too narrow, which is why
+   the chart's right edge — wind barbs, data columns — was getting cut off
+   even after the scale-to-fit fix). Still an estimate, not pixel-exact —
+   this sandbox has no network access to the real page to verify against. */
 .skewt-box{
   position:relative;border-radius:12px;overflow:hidden;
   border:1px solid var(--border-bright);background:#fff;
@@ -4332,13 +4336,23 @@ function fitSkewtFrame(box){
   if(!box) return;
   const frame=box.querySelector('iframe');
   if(!frame) return;
-  const NATIVE_W=900, NATIVE_H=1450;
-  const boxW=box.clientWidth||NATIVE_W;
-  const scale=boxW/NATIVE_W;
-  frame.style.width=NATIVE_W+'px';
-  frame.style.height=NATIVE_H+'px';
+  // Crop rectangle in the wsgi page's own unscaled px, measured off a real
+  // device screenshot of the embed: banner bottom ~y85, sidebar right edge
+  // ~x240, chart+attribution-line bottom ~y700. CROP_W is sized generously
+  // vs. the raw chart image's 800x640 aspect ratio so the chart's right
+  // edge (wind barbs, data columns) isn't cut off. CANVAS_W/H just need to
+  // be big enough that nothing past the crop box gets clipped by the
+  // iframe's own internal viewport before the scale/offset are applied.
+  const CROP_LEFT=240, CROP_TOP=100, CROP_W=780, CROP_H=615;
+  const CANVAS_W=CROP_LEFT+CROP_W+150, CANVAS_H=CROP_TOP+CROP_H+150;
+  const boxW=box.clientWidth||CROP_W;
+  const scale=boxW/CROP_W;
+  frame.style.width=CANVAS_W+'px';
+  frame.style.height=CANVAS_H+'px';
+  frame.style.left=Math.round(-CROP_LEFT*scale)+'px';
+  frame.style.top=Math.round(-CROP_TOP*scale)+'px';
   frame.style.transform=`scale(${scale})`;
-  box.style.height=Math.round(NATIVE_H*scale)+'px';
+  box.style.height=Math.round(CROP_H*scale)+'px';
 }
 window.fitSkewtFrame=fitSkewtFrame; // inline onerror="" handlers run in global scope, can't see script-local fns
 window.addEventListener('resize',()=>{
