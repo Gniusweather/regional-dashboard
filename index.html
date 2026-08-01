@@ -369,17 +369,20 @@ body::after{
 .tafb-link-btn:hover{background:var(--accent);color:#04121c;}
 /* ── SKEW-T DIAGRAM (Univ. of Wyoming) ──
    Tries the classic cgi-bin image endpoint (sondeSkewtGifUrl) via plain
-   <img> — a clean chart with no page chrome, if it decodes. Embedding the
-   newer wsgi page (which wraps the same chart in a full HTML page — banner,
-   sidebar, footer) via <iframe> and cropping it down with CSS was tried
-   across a few rounds, but iframes can't use object-fit like <img> can, so
-   every crop was really a blind pixel-offset guess against a page this
-   sandbox has no network access to verify — it drifted from "shows the
-   whole page" to "shows blank white" without ever landing correctly.
-   Dropped that in favor of the same graceful degradation already proven
-   for the NHC TAFB chart below: show the image if it loads, otherwise a
-   plain message pointing at the "Open Skew-T" link instead of a broken-
-   looking embed. */
+   <img> — a clean chart with no page chrome, if it decodes. On failure,
+   falls back to an <iframe> embedding the wsgi page (the same URL "Open
+   Skew-T in a new tab" uses) and crops it down to just the chart via
+   fitSkewtFrame() (JS) — same oversized-element technique used for the
+   NHC TAFB image. Earlier attempts at this crop were blind pixel-offset
+   guesses and didn't converge (went from "shows the whole page" to "shows
+   blank white"). This round's numbers are instead measured directly off a
+   real device screenshot of that exact URL opened in Safari (1125x2436px,
+   i.e. a 375pt-wide iPhone at 3x): banner bottom ~y445, sidebar right edge
+   ~x260, chart right edge and attribution-line bottom both comfortably
+   inside the frame at ~x1120/y1180 — converted to CSS px (÷3, since Safari
+   rendered the page at its native, un-zoomed device width with no
+   viewport meta tag) and used as-is for the iframe's own viewport width,
+   rather than an unrelated guessed canvas size like previous rounds used. */
 .skewt-box{
   position:relative;border-radius:12px;overflow:hidden;
   border:1px solid var(--border-bright);background:#fff;
@@ -387,9 +390,9 @@ body::after{
   width:100%;height:480px;display:block;
 }
 .skewt-box img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;display:block;}
-.skewt-box-fallback{display:none;position:absolute;inset:0;align-items:center;justify-content:center;flex-direction:column;gap:10px;text-align:center;padding:16px;background:#fff;color:var(--muted);font-family:var(--mono);font-size:var(--fs-12);}
+.skewt-box iframe{position:absolute;top:0;left:0;transform-origin:0 0;border:0;display:none;background:#fff;}
 .skewt-box.img-failed img{display:none;}
-.skewt-box.img-failed .skewt-box-fallback{display:flex;}
+.skewt-box.img-failed iframe{display:block;}
 /* Labels/names hidden — show only the map image. */
 .windy-lbl{display:none;}
 @media(max-width:960px){.windy-widget{--windy-h:260px;grid-template-columns:1fr 1fr;}}
@@ -4318,6 +4321,32 @@ function sondeSkewtGifUrl(dt){
   const Y=dt.getUTCFullYear(), M=pad(dt.getUTCMonth()+1), D=pad(dt.getUTCDate()), H=pad(dt.getUTCHours());
   return `https://weather.uwyo.edu/cgi-bin/sounding?region=samer&TYPE=GIF%3ASKEWT&YEAR=${Y}&MONTH=${M}&FROM=${D}${H}&TO=${D}${H}&STNM=${SONDE_STNM}`;
 }
+/* Crops the Skew-T <iframe> fallback down to just the chart. Renders the
+   wsgi page at a fixed 375px CSS-px viewport (matching the real device
+   width it was measured against — a 3x-scale iPhone, 1125 device px wide),
+   then shifts it up/left by the banner height and sidebar width so the
+   chart lands at the box's origin, then transform:scales the whole thing
+   down to whatever the box's actual on-screen width is. See the .skewt-box
+   CSS comment for where these numbers came from. */
+function fitSkewtFrame(box){
+  if(!box) return;
+  const frame=box.querySelector('iframe');
+  if(!frame) return;
+  const VIEWPORT_W=375, VIEWPORT_H=460;
+  const CROP_LEFT=87, CROP_TOP=148, CROP_W=286, CROP_H=245;
+  const boxW=box.clientWidth||CROP_W;
+  const scale=boxW/CROP_W;
+  frame.style.width=VIEWPORT_W+'px';
+  frame.style.height=VIEWPORT_H+'px';
+  frame.style.left=Math.round(-CROP_LEFT*scale)+'px';
+  frame.style.top=Math.round(-CROP_TOP*scale)+'px';
+  frame.style.transform=`scale(${scale})`;
+  box.style.height=Math.round(CROP_H*scale)+'px';
+}
+window.fitSkewtFrame=fitSkewtFrame; // inline onerror="" handlers run in global scope, can't see script-local fns
+window.addEventListener('resize',()=>{
+  document.querySelectorAll('.skewt-box.img-failed').forEach(fitSkewtFrame);
+});
 /* Fetch the sounding page's raw HTML. Deliberately does NOT use the generic
    robustFetchText()/fetchWithRetries() pipeline used elsewhere — that races in
    r.jina.ai's reader, which converts pages to markdown and destroys the
@@ -4638,8 +4667,8 @@ function renderRadiosonde(opts){
   const gifUrl=cycleDt?sondeSkewtGifUrl(cycleDt):null;
   const pngUrl=cycleDt?sondeSkewtPngUrl(cycleDt):null;
   const skewtBox=(gifUrl&&pngUrl)?`<div class="skewt-box">`+
-      `<img alt="Skew-T log-P — TNCC 78988" src="${escapeHtml(gifUrl)}" referrerpolicy="no-referrer-when-downgrade" onerror="this.closest('.skewt-box').classList.add('img-failed')">`+
-      `<div class="skewt-box-fallback">Inline preview unavailable right now.<br>Use the link below to view the chart.</div>`+
+      `<img alt="Skew-T log-P — TNCC 78988" src="${escapeHtml(gifUrl)}" referrerpolicy="no-referrer-when-downgrade" onerror="this.closest('.skewt-box').classList.add('img-failed');fitSkewtFrame(this.closest('.skewt-box'))">`+
+      `<iframe title="Skew-T log-P — TNCC 78988" src="${escapeHtml(pngUrl)}" referrerpolicy="no-referrer-when-downgrade"></iframe>`+
     `</div>`:'';
   const links=[
     pngUrl?`<a class="sonde-link sonde-link-big" href="${escapeHtml(pngUrl)}" target="_blank" rel="noopener">Open Skew-T in a new tab ↗</a>`:'',
@@ -4738,7 +4767,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,sondeSkewtGifUrl};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,sondeSkewtGifUrl,fitSkewtFrame};
 })();
 </script>
 
