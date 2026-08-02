@@ -336,16 +336,6 @@ body::after{
 .sonde-head{font-family:var(--mono);font-size:var(--fs-12);color:rgba(200,225,255,0.8);letter-spacing:0.3px;}
 .sonde-head b{color:var(--accent);}
 .sonde-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;}
-/* Indices sit beside the chart on wide screens, stack above it on narrow
-   ones — the tile grid gets a fixed column so it doesn't reflow width as
-   the chart resizes. */
-.sonde-chart-row{display:flex;gap:12px;align-items:flex-start;}
-.sonde-chart-row .sonde-grid{grid-template-columns:1fr;width:150px;flex:0 0 150px;}
-.sonde-chart-row .skewt-box{flex:1 1 auto;min-width:0;}
-@media(max-width:640px){
-  .sonde-chart-row{flex-direction:column;}
-  .sonde-chart-row .sonde-grid{width:100%;flex:0 0 auto;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));}
-}
 .sonde-link{color:var(--accent);font-family:var(--mono);font-size:var(--fs-11);text-decoration:none;align-self:flex-start;}
 .sonde-link:hover{text-decoration:underline;}
 .sonde-link-big{font-size:var(--fs-13);font-weight:700;border:1px solid var(--accent);border-radius:8px;padding:8px 14px;display:inline-block;margin-right:8px;}
@@ -4530,37 +4520,6 @@ function drawSkewT(canvas,profile,meta){
     drawWindBarb(ctx,barbX,y,r.drct,r.sknt,14);
   });
 
-  // Stats box — key indices drawn directly on the chart (top-left corner,
-  // over an opaque backing so the gridlines/adiabats underneath don't make
-  // it unreadable), in addition to the colored tiles alongside the chart.
-  const idx=(meta&&meta.indices)||{};
-  const statRows=[];
-  if(idx.cape!=null)statRows.push(['CAPE',Math.round(idx.cape)+' J/kg']);
-  if(idx.cin!=null)statRows.push(['CIN',Math.round(idx.cin)+' J/kg']);
-  if(idx.li!=null)statRows.push(['LI',idx.li.toFixed(1)]);
-  if(idx.k!=null)statRows.push(['K',idx.k.toFixed(0)]);
-  if(idx.tt!=null)statRows.push(['TT',idx.tt.toFixed(0)]);
-  if(idx.pw!=null)statRows.push(['PW',idx.pw.toFixed(0)+' mm']);
-  if(idx.freezingLevel){
-    const fz=idx.freezingLevel;
-    const val=fz.hgt!=null?(fz.hgt*3.28084>=1000?(fz.hgt*3.28084/1000).toFixed(1)+'kft':Math.round(fz.hgt*3.28084)+'ft'):Math.round(fz.p)+'hPa';
-    statRows.push(['FRZ LVL',val]);
-  }
-  if(idx.maxWind){
-    statRows.push(['MAX WD',`${Math.round(idx.maxWind.sknt)}kt@${Math.round(idx.maxWind.p)}`]);
-  }
-  if(statRows.length){
-    const bx=g.pad.l+5,by=g.pad.t+5,lineH=12,boxW=112,boxH=statRows.length*lineH+7;
-    ctx.fillStyle='rgba(255,255,255,0.88)';ctx.fillRect(bx,by,boxW,boxH);
-    ctx.strokeStyle='rgba(0,0,0,0.45)';ctx.lineWidth=1;ctx.strokeRect(bx,by,boxW,boxH);
-    ctx.font='9px sans-serif';ctx.textBaseline='top';
-    statRows.forEach((r,i)=>{
-      const ry=by+4+i*lineH;
-      ctx.textAlign='left';ctx.fillStyle='#444';ctx.fillText(r[0],bx+5,ry);
-      ctx.textAlign='right';ctx.fillStyle='#000';ctx.fillText(r[1],bx+boxW-5,ry);
-    });
-  }
-
   // Title block, matching the reference chart's wording.
   const m=meta||{};
   ctx.fillStyle='#000';ctx.textAlign='left';ctx.textBaseline='alphabetic';
@@ -4908,40 +4867,39 @@ function renderRadiosonde(opts){
   if(!parsed) return false;
   const ind=sondeMergedIndices(parsed.ind,parsed.profile);
   const a=analyzeSounding(ind);
-  const tiles=sondeTilesHtml(ind);
+  const cycleDt=cycleIso?new Date(cycleIso):null;
+  const canPlot=(parsed.profile||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).length>=2;
+  const freezingLevel=sondeFreezingLevel(parsed.profile), maxWind=sondeMaxWind(parsed.profile);
+  let tiles=sondeTilesHtml(ind);
+  if(freezingLevel){
+    const ft=freezingLevel.hgt!=null?freezingLevel.hgt*3.28084:null;
+    const val=ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'k':Math.round(ft)):Math.round(freezingLevel.p);
+    const unit=ft!=null?'ft':'hPa';
+    tiles+=`<div class="knmi-tile"><div class="knmi-tile-lbl">Freezing Level</div><div class="knmi-tile-val">${val} <small>${unit}</small></div></div>`;
+  }
+  if(maxWind){
+    tiles+=`<div class="knmi-tile"><div class="knmi-tile-lbl">Max Wind</div><div class="knmi-tile-val">${Math.round(maxWind.sknt)} <small>kt @ ${Math.round(maxWind.p)}hPa</small></div></div>`;
+  }
   const box=`<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
     `<div class="forecast-label">Analysis — ${escapeHtml(a.headline)}</div>`+
     `<div class="forecast-text">${escapeHtml(a.text)||'No stability indices found in this sounding.'}</div>`+
   `</div></div>`;
-  const cycleDt=cycleIso?new Date(cycleIso):null;
   const pngUrl=cycleDt?sondeSkewtPngUrl(cycleDt):null;
-  const canPlot=(parsed.profile||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).length>=2;
   const skewtBox=canPlot?`<div class="skewt-box"><canvas></canvas></div>`:'';
   const tilesGrid=tiles?`<div class="sonde-grid">${tiles}</div>`:'';
-  const chartRow=(tilesGrid||skewtBox)?`<div class="sonde-chart-row">${tilesGrid}${skewtBox}</div>`:'';
   const links=[
     pngUrl?`<a class="sonde-link sonde-link-big" href="${escapeHtml(pngUrl)}" target="_blank" rel="noopener">Open Skew-T in a new tab ↗</a>`:'',
     srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding text data ↗</a>`:''
   ].filter(Boolean).join('');
   content.innerHTML=
     `<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`+
-    box+chartRow+links;
+    box+tilesGrid+skewtBox+links;
   if(canPlot){
     const cycleTitle=cycleDt?`Station ${SONDE_STNM} at ${pad(cycleDt.getUTCHours())} UTC ${pad(cycleDt.getUTCDate())} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][cycleDt.getUTCMonth()]} ${cycleDt.getUTCFullYear()}`:`Station ${SONDE_STNM}`;
     __skewtLast={profile:parsed.profile,meta:{
       title:cycleTitle,
       station:SONDE_NAME,
-      coords:`Latitude: ${SONDE_LAT.toFixed(3)} Longitude: ${SONDE_LON.toFixed(3)}`,
-      indices:{
-        cape:sondeVal(ind,['CAPE using virtual','Convective Available']),
-        cin:sondeVal(ind,['CINS using virtual','Convective Inhibition']),
-        li:sondeVal(ind,['LIFT computed','Lifted index']),
-        k:sondeVal(ind,['K index']),
-        tt:sondeVal(ind,['Totals totals']),
-        pw:sondeVal(ind,['Precipitable water']),
-        freezingLevel:sondeFreezingLevel(parsed.profile),
-        maxWind:sondeMaxWind(parsed.profile)
-      }
+      coords:`Latitude: ${SONDE_LAT.toFixed(3)} Longitude: ${SONDE_LON.toFixed(3)}`
     }};
     redrawSkewT();
   }
