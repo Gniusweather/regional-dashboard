@@ -4316,29 +4316,28 @@ function sondeSkewtGifUrl(dt){
   const Y=dt.getUTCFullYear(), M=pad(dt.getUTCMonth()+1), D=pad(dt.getUTCDate()), H=pad(dt.getUTCHours());
   return `https://weather.uwyo.edu/cgi-bin/sounding?region=samer&TYPE=GIF%3ASKEWT&YEAR=${Y}&MONTH=${M}&FROM=${D}${H}&TO=${D}${H}&STNM=${SONDE_STNM}`;
 }
-/* Crops the Skew-T <iframe> fallback down to just the chart (roughly —
-   a sliver of the "Other data" sidebar is tolerated on the left, same as
-   in the reference screenshot this was calibrated against).
-   Forcing the iframe to a narrow ~375px viewport (this function's previous
-   version) was the wrong model: mobile Safari renders legacy pages with no
-   viewport meta tag against a ~980px *layout* viewport and then visually
-   shrinks the whole thing to fit the screen — a behavior specific to
-   top-level navigation that an <iframe> does NOT get, since an iframe's
-   declared width IS its layout viewport directly. That's why the 375px
-   version came out far more zoomed-in than the real page ever looks:
-   forcing a narrow viewport doesn't reproduce Safari's shrink-to-fit, it
-   just makes the (still large, still ~980px-design) content spill out of
-   a much smaller box. This version instead gives the iframe a ~980px
-   viewport (Safari's classic default) and scales the WHOLE rendered
-   result down afterward, matching what the top-level screenshot actually
-   showed. Crop numbers re-derived from that screenshot using the
-   980/deviceScreenshotWidth ratio instead of 1/devicePixelRatio. */
+/* Crops the Skew-T <iframe> fallback down to just the chart. Forcing the
+   iframe to a narrow ~375px viewport (an earlier version of this function)
+   was the wrong model: mobile Safari renders legacy pages with no viewport
+   meta tag against a ~980px *layout* viewport and then visually shrinks
+   the whole thing to fit the screen — a behavior specific to top-level
+   navigation that an <iframe> does NOT get, since an iframe's declared
+   width IS its layout viewport directly. Switching to a ~980px viewport
+   fixed the zoom level, but the crop box itself was still off (measured
+   from the wrong reference points): it started at the 300hPa line instead
+   of the chart's title/100hPa top, and ran past the attribution line into
+   the page's footer paragraphs and blank trailing space. This round's
+   CROP_TOP/CROP_H were re-derived by comparing that screenshot against a
+   clean reference crop of the same chart to work out the actual title→300hPa
+   and 300hPa→attribution proportions, rather than reusing the original
+   banner/sidebar pixel measurements, which turned out to have missed the
+   gap between the banner and where the chart content actually starts. */
 function fitSkewtFrame(box){
   if(!box) return;
   const frame=box.querySelector('iframe');
   if(!frame) return;
-  const VIEWPORT_W=980, VIEWPORT_H=1150;
-  const CROP_LEFT=227, CROP_TOP=388, CROP_W=750, CROP_H=640;
+  const VIEWPORT_W=1000, VIEWPORT_H=860;
+  const CROP_LEFT=227, CROP_TOP=126, CROP_W=770, CROP_H=630;
   const boxW=box.clientWidth||CROP_W;
   const scale=boxW/CROP_W;
   frame.style.width=VIEWPORT_W+'px';
