@@ -4392,7 +4392,7 @@ function skewTGeom(W,H){
   // squeezed into the narrow indices column. Narrower canvases wrap the
   // same text into more, shorter lines, so reserve more of them.
   const summaryLines=W>=700?2:(W>=450?3:4);
-  const pad={l:38+indicesW,r:34,t:12+titleLines*13+summaryLines*11+4,b:22};
+  const pad={l:38+indicesW,r:46,t:12+titleLines*13+summaryLines*11+4,b:22};
   const plotW=Math.max(10,W-pad.l-pad.r), plotH=Math.max(10,H-pad.t-pad.b);
   const PBOT=1000,PTOP=100,TMIN=-40,TMAX=60;
   const SKEW=plotW/plotH;
@@ -4411,22 +4411,25 @@ function drawWindBarb(ctx,x,y,dirDeg,speedKt,len){
   ctx.save();
   ctx.translate(x,y);
   ctx.rotate(dirDeg*Math.PI/180);
-  ctx.strokeStyle='#111';ctx.fillStyle='#111';ctx.lineWidth=1.1;
+  ctx.strokeStyle='#111';ctx.fillStyle='#111';ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(0,-len);ctx.stroke();
   let spd=Math.round(speedKt/5)*5,tip=-len;
-  const step=4.2;
+  // Even spacing for every element (was different multiples for pennants
+  // vs. full barbs, which made pennants render oversized/crowded relative
+  // to the reference chart's more delicate, evenly-spaced ticks).
+  const SPACE=3.8,TICK_DX=7,TICK_DY=5,PEN_DY=5.5;
   ctx.beginPath();
   while(spd>=50){
-    ctx.moveTo(0,tip);ctx.lineTo(7,tip+step*1.4);ctx.lineTo(0,tip+step*2.6);ctx.closePath();
-    tip+=step*2.6;spd-=50;
+    ctx.moveTo(0,tip);ctx.lineTo(TICK_DX,tip+PEN_DY);ctx.lineTo(0,tip+PEN_DY*2);ctx.closePath();
+    tip+=PEN_DY*2+SPACE*0.4;spd-=50;
   }
   ctx.fill();
   ctx.beginPath();
   while(spd>=10){
-    ctx.moveTo(0,tip);ctx.lineTo(7,tip+step*1.4);
-    tip+=step;spd-=10;
+    ctx.moveTo(0,tip);ctx.lineTo(TICK_DX,tip+TICK_DY);
+    tip+=SPACE;spd-=10;
   }
-  if(spd>=5){ ctx.moveTo(0,tip);ctx.lineTo(3.5,tip+step*0.7); }
+  if(spd>=5){ ctx.moveTo(0,tip);ctx.lineTo(TICK_DX*0.5,tip+TICK_DY*0.5); }
   ctx.stroke();
   ctx.restore();
 }
@@ -4601,7 +4604,7 @@ function drawSkewT(canvas,profile,meta){
     const y=g.yOf(r.p);
     if(y<g.pad.t||y>g.yBottom||Math.abs(y-lastY)<13)return;
     lastY=y;
-    drawWindBarb(ctx,barbX,y,r.drct,r.sknt,18);
+    drawWindBarb(ctx,barbX,y,r.drct,r.sknt,26);
   });
 
   // Indices panel — left of the pressure/height axis, on the canvas itself
