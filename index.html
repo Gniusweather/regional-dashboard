@@ -4371,7 +4371,12 @@ function skewTGeom(W,H){
 /* Standard meteorological wind barb: shaft points toward the compass
    direction the wind is blowing FROM (canvas rotate() is clockwise with
    0=up, matching 0°=N/90°=E), with pennants (50kt), full barbs (10kt) and
-   half barbs (5kt) stacked from the tip inward. */
+   half barbs (5kt) stacked from the tip inward. Proportions match
+   matplotlib's Barbs._make_barbs (the reference implementation behind
+   MetPy's SkewT), which sets spacing=length*0.125, barb height=length*0.4
+   and flag width=length*0.25 — chosen so each full barb's own extent along
+   the shaft exactly equals the gap to the next one (flush, not overlapping
+   or gapped, so the count reads correctly at a glance). */
 function drawWindBarb(ctx,x,y,dirDeg,speedKt,len){
   if(dirDeg==null||speedKt==null||!isFinite(dirDeg)||!isFinite(speedKt))return;
   ctx.save();
@@ -4380,22 +4385,27 @@ function drawWindBarb(ctx,x,y,dirDeg,speedKt,len){
   ctx.strokeStyle='#111';ctx.fillStyle='#111';ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(0,-len);ctx.stroke();
   let spd=Math.round(speedKt/5)*5,tip=-len;
-  // Even spacing for every element (was different multiples for pennants
-  // vs. full barbs, which made pennants render oversized/crowded relative
-  // to the reference chart's more delicate, evenly-spaced ticks).
-  const SPACE=3.8,TICK_DX=7,TICK_DY=5,PEN_DY=5.5;
+  const SPACE=len*0.125,BH=len*0.4;
+  let firstPennant=true;
   ctx.beginPath();
   while(spd>=50){
-    ctx.moveTo(0,tip);ctx.lineTo(TICK_DX,tip+PEN_DY);ctx.lineTo(0,tip+PEN_DY*2);ctx.closePath();
-    tip+=PEN_DY*2+SPACE*0.4;spd-=50;
+    if(!firstPennant) tip+=SPACE*0.5;
+    firstPennant=false;
+    ctx.moveTo(0,tip);ctx.lineTo(BH,tip+SPACE);ctx.lineTo(0,tip+SPACE*2);ctx.closePath();
+    tip+=SPACE*3;spd-=50;
   }
   ctx.fill();
   ctx.beginPath();
   while(spd>=10){
-    ctx.moveTo(0,tip);ctx.lineTo(TICK_DX,tip+TICK_DY);
+    ctx.moveTo(0,tip);ctx.lineTo(BH,tip+SPACE);
     tip+=SPACE;spd-=10;
   }
-  if(spd>=5){ ctx.moveTo(0,tip);ctx.lineTo(TICK_DX*0.5,tip+TICK_DY*0.5); }
+  if(spd>=5){
+    // A lone half-barb right at the tip is easy to mistake for the shaft
+    // just ending, so pull it in a bit — same nudge matplotlib applies.
+    if(tip===-len) tip+=SPACE*1.5;
+    ctx.moveTo(0,tip);ctx.lineTo(BH*0.5,tip+SPACE*0.5);
+  }
   ctx.stroke();
   ctx.restore();
 }
