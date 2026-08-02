@@ -4337,7 +4337,12 @@ function skewTGeom(W,H){
   // Title block above the plot scales with width — on a narrow phone canvas
   // only the first line fits, so don't reserve space for lines we won't draw.
   const titleLines=W>=520?3:(W>=360?2:1);
-  const pad={l:38,r:34,t:12+titleLines*13,b:22};
+  // Indices panel: a dedicated column to the left of the pressure/height
+  // axis (not overlaid on the plot itself), so the numbers are baked into
+  // the same canvas as the chart — printing or saving the image gets both
+  // together. Skipped below a width where it'd crowd the plot too much.
+  const indicesW=W>=480?92:(W>=360?76:60);
+  const pad={l:38+indicesW,r:34,t:12+titleLines*13,b:22};
   const plotW=Math.max(10,W-pad.l-pad.r), plotH=Math.max(10,H-pad.t-pad.b);
   const PBOT=1000,PTOP=100,TMIN=-40,TMAX=60;
   const SKEW=plotW/plotH;
@@ -4345,7 +4350,7 @@ function skewTGeom(W,H){
   const yBottom=yOf(PBOT);
   const xBase=T=>pad.l+plotW*(T-TMIN)/(TMAX-TMIN);
   const xOf=(T,P)=>xBase(T)+SKEW*(yBottom-yOf(P));
-  return {W,H,pad,plotW,plotH,PBOT,PTOP,TMIN,TMAX,SKEW,titleLines,yOf,yBottom,xBase,xOf};
+  return {W,H,pad,plotW,plotH,PBOT,PTOP,TMIN,TMAX,SKEW,titleLines,indicesW,yOf,yBottom,xBase,xOf};
 }
 /* Standard meteorological wind barb: shaft points toward the compass
    direction the wind is blowing FROM (canvas rotate() is clockwise with
@@ -4522,6 +4527,38 @@ function drawSkewT(canvas,profile,meta){
     lastY=y;
     drawWindBarb(ctx,barbX,y,r.drct,r.sknt,18);
   });
+
+  // Indices panel — left of the pressure/height axis, on the canvas itself
+  // so it prints/saves together with the chart as one image.
+  if(g.indicesW>0){
+    const idx=(meta&&meta.indices)||{};
+    const rows=[];
+    if(idx.cape!=null)rows.push(['CAPE',Math.round(idx.cape)+' J/kg']);
+    if(idx.cin!=null)rows.push(['CIN',Math.round(idx.cin)+' J/kg']);
+    if(idx.li!=null)rows.push(['LI',idx.li.toFixed(1)]);
+    if(idx.k!=null)rows.push(['K',idx.k.toFixed(0)]);
+    if(idx.tt!=null)rows.push(['TT',idx.tt.toFixed(0)]);
+    if(idx.pw!=null)rows.push(['PW',idx.pw.toFixed(0)+' mm']);
+    if(idx.freezingLevel){
+      const fz=idx.freezingLevel, ft=fz.hgt!=null?fz.hgt*3.28084:null;
+      rows.push(['FRZ LVL',ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'kft':Math.round(ft)+'ft'):Math.round(fz.p)+'hPa']);
+    }
+    if(idx.maxWind)rows.push(['MAX WD',`${Math.round(idx.maxWind.sknt)}kt@${Math.round(idx.maxWind.p)}`]);
+    if(rows.length){
+      const px=6,pw=g.indicesW-10;
+      let py=g.pad.t;
+      ctx.strokeStyle='rgba(0,0,0,0.3)';ctx.lineWidth=1;
+      ctx.strokeRect(px-2,py-2,pw+4,rows.length*24+4);
+      ctx.textBaseline='top';
+      rows.forEach(r=>{
+        ctx.textAlign='left';ctx.font='8.5px sans-serif';ctx.fillStyle='#555';
+        ctx.fillText(r[0],px,py);
+        ctx.textAlign='left';ctx.font='bold 11px sans-serif';ctx.fillStyle='#000';
+        ctx.fillText(r[1],px,py+10);
+        py+=24;
+      });
+    }
+  }
 
   // Title block, matching the reference chart's wording.
   const m=meta||{};
@@ -4902,7 +4939,17 @@ function renderRadiosonde(opts){
     __skewtLast={profile:parsed.profile,meta:{
       title:cycleTitle,
       station:SONDE_NAME,
-      coords:`Latitude: ${SONDE_LAT.toFixed(3)} Longitude: ${SONDE_LON.toFixed(3)}`
+      coords:`Latitude: ${SONDE_LAT.toFixed(3)} Longitude: ${SONDE_LON.toFixed(3)}`,
+      indices:{
+        cape:sondeVal(ind,['CAPE using virtual','Convective Available']),
+        cin:sondeVal(ind,['CINS using virtual','Convective Inhibition']),
+        li:sondeVal(ind,['LIFT computed','Lifted index']),
+        k:sondeVal(ind,['K index']),
+        tt:sondeVal(ind,['Totals totals']),
+        pw:sondeVal(ind,['Precipitable water']),
+        freezingLevel,
+        maxWind
+      }
     }};
     redrawSkewT();
   }
