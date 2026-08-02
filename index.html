@@ -380,6 +380,11 @@ body::after{
   width:100%;height:480px;display:block;
 }
 .skewt-box canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+/* A fixed 480px height next to a shrinking phone width made the chart
+   awkwardly tall/narrow (skewTGeom's own indices-column and margin
+   breakpoints already assume a squarer aspect). Shorten it to match. */
+@media(max-width:600px){.skewt-box{height:400px;}}
+@media(max-width:400px){.skewt-box{height:340px;}}
 /* Labels/names hidden — show only the map image. */
 .windy-lbl{display:none;}
 @media(max-width:960px){.windy-widget{--windy-h:260px;grid-template-columns:1fr 1fr;}}
@@ -4409,6 +4414,44 @@ function drawWindBarb(ctx,x,y,dirDeg,speedKt,len){
   ctx.stroke();
   ctx.restore();
 }
+/* Shades the area between the environment and parcel curves — warm tint
+   where the parcel is buoyant (positive area, contributes to CAPE), cool
+   tint where it's not (negative area/CIN) — same convention as MetPy's
+   shade_cape/shade_cin. Drawn across the whole profile rather than just the
+   single largest contiguous run the CAPE/CIN *numbers* use, so a small
+   stray patch elsewhere (e.g. a shallow near-surface layer) can show up
+   shaded without being counted in the tiles — that's expected, not a
+   mismatch. */
+function sondeShadeParcelArea(ctx,g,envT,parcelT,Pstart,Pend){
+  const CAPE_FILL='rgba(255,110,40,0.16)', CIN_FILL='rgba(60,110,220,0.14)';
+  const step=5;
+  const Ps=[]; for(let P=Pstart;P>Pend;P-=step) Ps.push(P); Ps.push(Pend);
+  const sgn=P=>{ const e=envT(P); if(e==null)return null; const d=parcelT(P)-e; return d>0?1:(d<0?-1:0); };
+  let i=0;
+  while(i<Ps.length-1){
+    const s=sgn(Ps[i]);
+    if(s==null){ i++; continue; }
+    let j=i+1;
+    while(j<Ps.length&&sgn(Ps[j])===s) j++;
+    if(s!==0){
+      const envPts=[],parPts=[];
+      for(let k=i;k<j;k++){
+        const P=Ps[k],e=envT(P); if(e==null)continue;
+        envPts.push([g.xOf(e,P),g.yOf(P)]);
+        parPts.push([g.xOf(parcelT(P),P),g.yOf(P)]);
+      }
+      if(envPts.length>=2){
+        ctx.fillStyle=s>0?CAPE_FILL:CIN_FILL;
+        ctx.beginPath();
+        ctx.moveTo(envPts[0][0],envPts[0][1]);
+        for(let k=1;k<envPts.length;k++) ctx.lineTo(envPts[k][0],envPts[k][1]);
+        for(let k=parPts.length-1;k>=0;k--) ctx.lineTo(parPts[k][0],parPts[k][1]);
+        ctx.closePath();ctx.fill();
+      }
+    }
+    i=j;
+  }
+}
 function drawSkewT(canvas,profile,meta){
   if(!canvas||!canvas.getContext)return false;
   const cssW=canvas.clientWidth||600,cssH=canvas.clientHeight||420;
@@ -4493,6 +4536,24 @@ function drawSkewT(canvas,profile,meta){
     const x=g.xOf(sondeMixRInvT(w,1000),1000);
     if(x>g.pad.l+4&&x<g.pad.l+g.plotW-4) ctx.fillText(w.toFixed(1),x,g.yBottom-2);
   });
+
+  // Surface parcel ascent — shaded CAPE/CIN area, the parcel's own trace
+  // (dry-adiabatic to the LCL, then moist-adiabatic above it), and a dot
+  // marking the LCL itself. Drawn under the T/Td traces so those stay the
+  // most prominent lines on the chart.
+  const parcel=sondeSurfaceParcel(profile);
+  if(parcel){
+    sondeShadeParcelArea(ctx,g,parcel.envT,parcel.parcelT,parcel.P0,parcel.Ptop);
+    ctx.strokeStyle='rgba(150,80,20,0.9)';ctx.lineWidth=1.6;ctx.setLineDash([]);
+    ctx.beginPath();
+    for(let P=parcel.P0;P>=parcel.Ptop;P-=10){
+      const x=g.xOf(parcel.parcelT(P),P),y=g.yOf(P);
+      P===parcel.P0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+    const lx=g.xOf(parcel.Tlcl,parcel.Plcl),ly=g.yOf(parcel.Plcl);
+    ctx.beginPath();ctx.arc(lx,ly,3,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();
+  }
 
   // Dewpoint and temperature traces — both black, as on the reference chart
   // (dewpoint is always the left-hand one).
@@ -4781,6 +4842,11 @@ function sondeMoistLapse(Tc,P){ // dT/dP, K per hPa, along a saturated adiabat
   const numer=Rd*Tk+Lv*ws, denom=Cp+(Lv*Lv*ws*eps)/(Rd*Tk*Tk);
   return (numer/denom)/P;
 }
+// Virtual temperature: moist air is less dense than dry air at the same T/P,
+// so buoyancy and layer thickness should really be computed from this, not
+// plain T. w in g/kg; w==null/0 leaves T unchanged (no moisture data → no
+// correction, rather than excluding the level).
+function sondeVirtualT(Tc,w){ return !w?Tc:(Tc+273.15)*(1+0.000608*w)-273.15; }
 /* Linear interpolation of profile key at a target pressure. prof must be
    sorted surface-first (descending pressure). */
 function sondeInterpEnv(prof,targetP,key){
@@ -4795,14 +4861,15 @@ function sondeInterpEnv(prof,targetP,key){
   }
   return null;
 }
-function sondeComputeIndices(profileRaw){
+/* Surface parcel ascent — lifted dry-adiabatically to the LCL (constant
+   mixing ratio) then moist-adiabatically above it. Shared by the CAPE/CIN
+   calculation and the chart's parcel trace/LCL marker/shading, so both
+   always agree with each other exactly. */
+function sondeSurfaceParcel(profileRaw){
   const prof=(profileRaw||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>b.p-a.p);
-  if(prof.length<5) return null;
+  if(prof.length<2) return null;
   const P0=prof[0].p, T0=prof[0].t, Td0=(prof[0].td!=null?prof[0].td:prof[0].t);
   const Ptop=prof[prof.length-1].p;
-
-  // LCL — lift the surface parcel dry-adiabatically, holding its mixing
-  // ratio constant, until the parcel is saturated at that mixing ratio.
   const w0=sondeMixR(Td0,P0), theta0=sondeTheta(T0,P0);
   let Plcl=P0,Tlcl=T0;
   for(let P=P0;P>=Ptop;P-=1){
@@ -4810,9 +4877,6 @@ function sondeComputeIndices(profileRaw){
     Plcl=P; Tlcl=Tp;
     if(sondeMixR(Tp,P)<=w0)break;
   }
-
-  // Parcel temperature above the LCL, via a moist-adiabat ascent tabulated
-  // every 5 hPa (RK4) and interpolated for arbitrary pressures.
   const moistPts=[{p:Plcl,t:Tlcl}];
   { let T=Tlcl,P=Plcl; const dP=-5;
     while(P+dP>=Ptop){
@@ -4832,13 +4896,24 @@ function sondeComputeIndices(profileRaw){
     }
     return moistPts[moistPts.length-1].t;
   }
+  const parcelW=P=>P>=Plcl?w0:sondeMixR(parcelT(P),P); // saturated above the LCL
   const envT=P=>sondeInterpEnv(prof,P,'t');
+  const envTd=P=>sondeInterpEnv(prof,P,'td');
+  return {prof,P0,T0,Td0,Ptop,Plcl,Tlcl,theta0,w0,parcelT,parcelW,envT,envTd};
+}
+function sondeComputeIndices(profileRaw){
+  const parcel=sondeSurfaceParcel(profileRaw);
+  if(!parcel||parcel.prof.length<5) return null;
+  const {prof,P0,Ptop,Plcl,parcelT,parcelW,envT,envTd}=parcel;
 
   // CAPE/CIN — per-layer buoyancy (parcel vs. environment) between
   // consecutive profile levels, using the hypsometric equation for each
-  // layer's thickness. CAPE is the largest contiguous run of positive-
-  // buoyancy layers (LFC→EL) rather than every positive layer in the
-  // profile — a lone layer of positive buoyancy can otherwise appear
+  // layer's thickness. Both buoyancy and layer thickness use virtual
+  // temperature (sondeVirtualT) rather than plain T — moist air is less
+  // dense than dry air at the same T/P, so skipping this understates CAPE
+  // in a humid tropical column. CAPE is the largest contiguous run of
+  // positive-buoyancy layers (LFC→EL) rather than every positive layer in
+  // the profile — a lone layer of positive buoyancy can otherwise appear
   // anywhere the parcel and environment happen to nearly coincide (most
   // reliably right at the surface, where they start identical), and
   // summing every negative layer in the whole profile into CIN massively
@@ -4855,10 +4930,13 @@ function sondeComputeIndices(profileRaw){
     const Pa=uniq[i],Pb=uniq[i+1];
     const TaEnv=envT(Pa),TbEnv=envT(Pb);
     if(TaEnv==null||TbEnv==null||Pa===Pb)continue;
+    const TaEnvV=sondeVirtualT(TaEnv,envTd(Pa)!=null?sondeMixR(envTd(Pa),Pa):0);
+    const TbEnvV=sondeVirtualT(TbEnv,envTd(Pb)!=null?sondeMixR(envTd(Pb),Pb):0);
     const TaP=parcelT(Pa),TbP=parcelT(Pb);
-    const TvAvgK=(TaEnv+TbEnv)/2+273.15;
+    const TaPV=sondeVirtualT(TaP,parcelW(Pa)), TbPV=sondeVirtualT(TbP,parcelW(Pb));
+    const TvAvgK=(TaEnvV+TbEnvV)/2+273.15;
     const dz=Rd*TvAvgK/g*Math.log(Pa/Pb);
-    const dT=((TaP-TaEnv)+(TbP-TbEnv))/2;
+    const dT=((TaPV-TaEnvV)+(TbPV-TbEnvV))/2;
     layers.push({dE:g*dT/TvAvgK*dz});
   }
   let CAPE=0,CIN=0,bestSum=0,bestStart=-1,i=0;
