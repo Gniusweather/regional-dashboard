@@ -4509,15 +4509,18 @@ function drawSkewT(canvas,profile,meta){
     if(x>=g.pad.l-6&&x<=g.pad.l+g.plotW+6) ctx.fillText(String(T),x,g.yBottom+4);
   }
 
-  // Wind barbs down the right-hand margin.
-  const barbX=g.pad.l+g.plotW+16;
+  // Wind barbs, anchored right on the plot's border (like the reference
+  // chart — no gap between the axis and the barb, shaft/ticks extend
+  // outward from there, and can point across the border into the plot
+  // itself depending on direction, same as the reference does).
+  const barbX=g.pad.l+g.plotW;
   let lastY=-999;
   prof.forEach(r=>{
     if(r.drct==null||r.sknt==null)return;
     const y=g.yOf(r.p);
     if(y<g.pad.t||y>g.yBottom||Math.abs(y-lastY)<13)return;
     lastY=y;
-    drawWindBarb(ctx,barbX,y,r.drct,r.sknt,14);
+    drawWindBarb(ctx,barbX,y,r.drct,r.sknt,18);
   });
 
   // Title block, matching the reference chart's wording.
