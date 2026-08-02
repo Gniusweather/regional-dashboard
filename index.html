@@ -4800,7 +4800,7 @@ function renderRadiosonde(opts){
   const canPlot=(parsed.profile||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).length>=2;
   const skewtBox=canPlot?`<div class="skewt-box"><canvas></canvas></div>`:'';
   const links=[
-    pngUrl?`<a class="sonde-link sonde-link-big" href="${escapeHtml(pngUrl)}" target="_blank" rel="noopener">View official chart (Univ. of Wyoming) ↗</a>`:'',
+    pngUrl?`<a class="sonde-link sonde-link-big" href="${escapeHtml(pngUrl)}" target="_blank" rel="noopener">Open Skew-T in a new tab ↗</a>`:'',
     srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding text data ↗</a>`:''
   ].filter(Boolean).join('');
   content.innerHTML=
