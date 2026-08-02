@@ -777,6 +777,7 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
 .knmi-trend-up{color:#7fa8ff;}
 .knmi-trend-down{color:#ffa07f;}
 .knmi-trend-flat{color:rgba(200,225,255,0.4);}
+.knmi-spark{display:block;margin-top:5px;}
 .knmi-tile.knmi-warn{border-color:rgba(245,158,11,0.55);}
 .knmi-tile.knmi-warn::before{background:linear-gradient(90deg,var(--warn),transparent 70%);}
 .knmi-tile.knmi-warn .knmi-tile-val{color:var(--warn);}
@@ -4277,7 +4278,46 @@ const SONDE_STNM='78988';
 const SONDE_NAME='HATO AIRPORT, CURACAO, CURACAO, ST MAARTEN AND/ET ARUBA';
 const SONDE_LAT=12.180, SONDE_LON=-68.960;
 const SONDE_CACHE_KEY='sonde-cache-v2';
+const SONDE_HISTORY_KEY='sonde-history-v1';
+const SONDE_HISTORY_MAX=10; // ~5 days at 2 cycles/day — enough for a short trend, not a huge blob in localStorage
 let __sondeLoading=false;
+/* Rolling history of a handful of key indices per cycle, for the small
+   sparkline on each tile — separate from SONDE_CACHE_KEY (which only ever
+   holds the single most recent cycle, used for the up/down/flat arrow).
+   Skips the append if cycleIso matches the last entry already stored (a
+   manual refresh with nothing new yet shouldn't duplicate a point). */
+function sondeHistoryUpdate(cycleIso,vals){
+  let hist=[];
+  try{ hist=JSON.parse(localStorage.getItem(SONDE_HISTORY_KEY))||[]; }catch(e){}
+  if(!Array.isArray(hist))hist=[];
+  if(cycleIso&&(!hist.length||hist[hist.length-1].cycleIso!==cycleIso)){
+    hist.push({cycleIso,...vals});
+    if(hist.length>SONDE_HISTORY_MAX)hist=hist.slice(hist.length-SONDE_HISTORY_MAX);
+    try{localStorage.setItem(SONDE_HISTORY_KEY,JSON.stringify(hist));}catch(e){}
+  }
+  return hist;
+}
+/* Small inline sparkline SVG for a single index's recent history — muted
+   line (matches the app's recessive grid/axis convention), with the last
+   point picked out as a dot colored the same neutral up/down/flat as the
+   trend arrow (rising isn't inherently good or bad the same way for every
+   index, so no red/green here). Returns '' with fewer than 2 usable points
+   — nothing meaningful to draw yet. */
+function sondeSparklineSvg(values){
+  const pts=(values||[]).filter(v=>v!=null&&isFinite(v));
+  if(pts.length<2)return '';
+  const W=54,H=16,pad=2;
+  const min=Math.min(...pts),max=Math.max(...pts);
+  const span=(max-min)||1;
+  const xy=pts.map((v,i)=>[pad+(W-2*pad)*(i/(pts.length-1)),H-pad-(H-2*pad)*((v-min)/span)]);
+  const path=xy.map((p,i)=>(i===0?'M':'L')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+  const last=xy[xy.length-1];
+  const dotColor=pts[pts.length-1]>pts[pts.length-2]?'#7fa8ff':pts[pts.length-1]<pts[pts.length-2]?'#ffa07f':'rgba(200,225,255,0.6)';
+  return `<svg class="knmi-spark" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">`+
+    `<path d="${path}" fill="none" stroke="rgba(200,225,255,0.4)" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>`+
+    `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="1.8" fill="${dotColor}"/>`+
+    `</svg>`;
+}
 
 /* Candidate launch cycles, newest first: 12Z/00Z today and the two days
    before, skipping any cycle younger than ~75min (data not published yet). */
@@ -5050,7 +5090,7 @@ function analyzeSounding(ind){
   return {icon,headline,text:parts.join('. ')+(parts.length?'.':'')};
 }
 /* Index tiles, colour-banded like the KNMI tiles. */
-function sondeTilesHtml(ind,trend){
+function sondeTilesHtml(ind,trend,history){
   const defs=[
     {names:['CAPE using virtual','Convective Available'],lbl:'CAPE',unit:'J/kg',band:v=>v>=2500?'knmi-bad':v>=1000?'knmi-warn':'knmi-ok',trendKey:'cape'},
     {names:['CINS using virtual','Convective Inhibition'],lbl:'CIN',unit:'J/kg',band:v=>v<=-100?'knmi-warn':'knmi-ok',trendKey:'cin'},
@@ -5071,7 +5111,8 @@ function sondeTilesHtml(ind,trend){
     const disp=Math.abs(v)>=100?Math.round(v):+v.toFixed(1);
     const t=d.trendKey&&trend?trend[d.trendKey]:null;
     const trendSpan=t?`<span class="knmi-trend knmi-trend-${t==='↑'?'up':t==='↓'?'down':'flat'}" title="vs. previous cycle">${t}</span>`:'';
-    h+=`<div class="knmi-tile ${cls}"><div class="knmi-tile-lbl">${d.lbl}</div><div class="knmi-tile-val">${disp}${d.unit?` <small>${d.unit}</small>`:''}${trendSpan}</div></div>`;
+    const spark=d.trendKey&&history?sondeSparklineSvg(history.map(hh=>hh[d.trendKey])):'';
+    h+=`<div class="knmi-tile ${cls}"><div class="knmi-tile-lbl">${d.lbl}</div><div class="knmi-tile-val">${disp}${d.unit?` <small>${d.unit}</small>`:''}${trendSpan}</div>${spark}</div>`;
     shown++;
   });
   return shown?h:'';
@@ -5116,7 +5157,8 @@ function renderRadiosonde(opts){
     tt:sondeTrend(ttV,sondeVal(prevInd,['Totals totals']),1.5),
     pw:sondeTrend(pwV,sondeVal(prevInd,['Precipitable water']),2)
   }:{};
-  let tiles=sondeTilesHtml(ind,trend);
+  const history=sondeHistoryUpdate(cycleIso,{cape:capeV,cin:cinV,li:liV,k:kV,tt:ttV,pw:pwV});
+  let tiles=sondeTilesHtml(ind,trend,history);
   if(freezingLevel){
     const ft=freezingLevel.hgt!=null?freezingLevel.hgt*3.28084:null;
     const val=ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'k':Math.round(ft)):Math.round(freezingLevel.p);
@@ -5248,7 +5290,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,exportSkewTPng,printSkewT};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,exportSkewTPng,printSkewT};
 })();
 </script>
 
