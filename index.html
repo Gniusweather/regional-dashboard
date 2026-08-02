@@ -4317,10 +4317,11 @@ function sondeMixRInvT(w,P){ // inverse of sondeMixR: T (°C) at which sat. mixi
   const L=Math.log(es/6.112);
   return 243.5*L/(17.67-L);
 }
-/* First 0°C crossing scanning down from the top — the "highest" freezing
-   level if the profile has more than one (e.g. a low-level inversion). */
+/* First 0°C crossing scanning up from the surface — the standard "lowest"
+   freezing level if the profile has more than one (e.g. a low-level
+   inversion), matching the convention used by other sounding tools. */
 function sondeFreezingLevel(profile){
-  const prof=(profile||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>a.p-b.p); // top-down
+  const prof=(profile||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>b.p-a.p); // surface-up
   for(let i=0;i<prof.length-1;i++){
     const a=prof[i],b=prof[i+1];
     if((a.t<=0&&b.t>=0)||(a.t>=0&&b.t<=0)){
