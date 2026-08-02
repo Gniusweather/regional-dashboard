@@ -4602,7 +4602,11 @@ function drawSkewT(canvas,profile,meta){
   prof.forEach(r=>{
     if(r.drct==null||r.sknt==null)return;
     const y=g.yOf(r.p);
-    if(y<g.pad.t||y>g.yBottom||Math.abs(y-lastY)<13)return;
+    // Wyoming's own chart plots a barb at essentially every reported level,
+    // even where neighboring shafts visually cross each other — much
+    // denser than the old 13px gap allowed. Only thin enough to stop
+    // barbs literally landing on top of each other.
+    if(y<g.pad.t||y>g.yBottom||Math.abs(y-lastY)<6)return;
     lastY=y;
     drawWindBarb(ctx,barbX,y,r.drct,r.sknt,26);
   });
