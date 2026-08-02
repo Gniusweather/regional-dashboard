@@ -4561,11 +4561,12 @@ function drawSkewT(canvas,profile,meta){
   prof.forEach(r=>{
     if(r.drct==null||r.sknt==null)return;
     const y=g.yOf(r.p);
-    // Wyoming's own chart plots a barb at essentially every reported level,
-    // even where neighboring shafts visually cross each other — much
-    // denser than the old 13px gap allowed. Only thin enough to stop
-    // barbs literally landing on top of each other.
-    if(y<g.pad.t||y>g.yBottom||Math.abs(y-lastY)<6)return;
+    // Dense enough to resemble Wyoming's own chart, but 6px let levels with
+    // light/variable wind near the tropopause (rapid direction swings over
+    // a tiny pressure gap, common where speed is near zero) pile up into an
+    // illegible tangle of crossing shafts. 10px keeps it dense lower down
+    // while giving each barb enough room to stay readable.
+    if(y<g.pad.t||y>g.yBottom||Math.abs(y-lastY)<10)return;
     lastY=y;
     drawWindBarb(ctx,barbX,y,r.drct,r.sknt,26);
   });
