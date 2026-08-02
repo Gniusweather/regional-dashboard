@@ -4689,13 +4689,6 @@ function drawSkewT(canvas,profile,meta){
       const fz=idx.freezingLevel, ft=fz.hgt!=null?fz.hgt*3.28084:null;
       rows.push(['FRZ LVL',ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'kft':Math.round(ft)+'ft'):Math.round(fz.p)+'hPa']);
     }
-    if(idx.storm){
-      const st=idx.storm;
-      if(st.shear6Kt!=null)rows.push(['SHR6',Math.round(st.shear6Kt)+'kt']);
-      if(st.srh3!=null)rows.push(['SRH3',Math.round(st.srh3)]);
-      if(st.ehi!=null)rows.push(['EHI',st.ehi.toFixed(1)]);
-      if(st.brn!=null)rows.push(['BRN',Math.round(st.brn)]);
-    }
     if(rows.length){
       const px=6,pw=g.indicesW-10;
       let py=g.pad.t;
@@ -5058,124 +5051,6 @@ function sondeMergedIndices(scrapedInd,profile){
   }
   return merged;
 }
-/* ── STORM-RELATIVE WIND INDICES ──
-   Bulk shear, Bunkers storm motion, storm-relative helicity (SRH), the
-   energy-helicity index (EHI) and the bulk Richardson number (BRN) — all
-   standard severe-weather diagnostics computed from the same wind profile
-   already parsed for the barbs, in the surface-relative (AGL) height it
-   assumes. Formulas follow Bunkers et al. (2000) for storm motion and the
-   usual discrete trapezoidal form for SRH (as used by SHARPpy/MetPy). */
-function sondeWindUV(drctDeg,sknt){ // knots -> m/s vector components
-  const spd=sknt*0.514444, rad=drctDeg*Math.PI/180;
-  return {u:-spd*Math.sin(rad), v:-spd*Math.cos(rad)};
-}
-function sondeUVProfile(profile){ // sorted surface-up, heights made AGL, pressure kept for pressure-weighted means
-  const rows=(profile||[]).filter(r=>isFinite(r.hgt)&&isFinite(r.p)&&r.drct!=null&&r.sknt!=null&&isFinite(r.drct)&&isFinite(r.sknt)).sort((a,b)=>a.hgt-b.hgt);
-  if(!rows.length)return null;
-  const h0=rows[0].hgt;
-  return rows.map(r=>{ const {u,v}=sondeWindUV(r.drct,r.sknt); return {hgtAgl:r.hgt-h0,p:r.p,u,v}; });
-}
-function sondeUVAt(uvProf,hAgl){ // linear interpolation (u,v,p), clamped at the ends
-  if(!uvProf||!uvProf.length)return null;
-  if(hAgl<=uvProf[0].hgtAgl)return {u:uvProf[0].u,v:uvProf[0].v,p:uvProf[0].p};
-  if(hAgl>=uvProf[uvProf.length-1].hgtAgl)return {u:uvProf[uvProf.length-1].u,v:uvProf[uvProf.length-1].v,p:uvProf[uvProf.length-1].p};
-  for(let i=0;i<uvProf.length-1;i++){
-    const a=uvProf[i],b=uvProf[i+1];
-    if(a.hgtAgl<=hAgl&&b.hgtAgl>=hAgl){
-      const f=(hAgl-a.hgtAgl)/((b.hgtAgl-a.hgtAgl)||1e-9);
-      return {u:a.u+(b.u-a.u)*f, v:a.v+(b.v-a.v)*f, p:a.p+(b.p-a.p)*f};
-    }
-  }
-  return null;
-}
-/* Pressure-weighted mean wind over [hBottom,hTop] AGL: WCA = ∫V dp / ∫dp
-   (Holton 2004 p.76 / NCL's wgt_vertical_n) — matches MetPy's
-   weighted_continuous_average exactly, verified against it directly, rather
-   than a plain height-weighted average. */
-function sondeLayerMeanUV(uvProf,hBottom,hTop){
-  const b0=sondeUVAt(uvProf,hBottom), bT=sondeUVAt(uvProf,hTop);
-  if(!b0||!bT||b0.p==null||bT.p==null)return null;
-  const pts=[{h:hBottom,u:b0.u,v:b0.v,p:b0.p}];
-  uvProf.forEach(row=>{ if(row.hgtAgl>hBottom&&row.hgtAgl<hTop&&row.p!=null) pts.push({h:row.hgtAgl,u:row.u,v:row.v,p:row.p}); });
-  pts.push({h:hTop,u:bT.u,v:bT.v,p:bT.p});
-  pts.sort((a,b)=>a.h-b.h);
-  let sumU=0,sumV=0;
-  for(let i=0;i<pts.length-1;i++){
-    const dp=pts[i+1].p-pts[i].p; // negative — pressure decreases with height
-    sumU+=0.5*(pts[i].u+pts[i+1].u)*dp;
-    sumV+=0.5*(pts[i].v+pts[i+1].v)*dp;
-  }
-  const totalDp=pts[pts.length-1].p-pts[0].p;
-  return totalDp?{u:sumU/totalDp, v:sumV/totalDp}:null;
-}
-function sondeBulkShear(uvProf,hTop){ // m/s
-  const b0=sondeUVAt(uvProf,0), bT=sondeUVAt(uvProf,hTop);
-  return (b0&&bT)?Math.hypot(bT.u-b0.u,bT.v-b0.v):null;
-}
-function sondeBunkersStormMotion(uvProf){
-  // Head of the shear vector is the pressure-weighted 5.5-6km mean wind
-  // (not the single point at 6km) and the tail is the 0-500m mean —
-  // matches MetPy's bunkers_storm_motion exactly, verified against it
-  // directly.
-  const mean6=sondeLayerMeanUV(uvProf,0,6000), mean05=sondeLayerMeanUV(uvProf,0,500);
-  const mean5500_6000=sondeLayerMeanUV(uvProf,5500,6000);
-  if(!mean6||!mean05||!mean5500_6000)return null;
-  const shearU=mean5500_6000.u-mean05.u, shearV=mean5500_6000.v-mean05.v;
-  const shearMag=Math.hypot(shearU,shearV);
-  if(shearMag<1e-6)return null;
-  const D=7.5; // m/s — empirical deviation magnitude, Bunkers et al. (2000)
-  const devU=D*(shearV/shearMag), devV=D*(-shearU/shearMag); // 90° right of the shear vector
-  return {
-    mean6,
-    rightMover:{u:mean6.u+devU,v:mean6.v+devV},
-    leftMover:{u:mean6.u-devU,v:mean6.v-devV}
-  };
-}
-function sondeSRH(uvProf,cu,cv,hTop){ // storm-relative helicity, m^2/s^2 — verified against MetPy's storm_relative_helicity
-  const b0=sondeUVAt(uvProf,0), bT=sondeUVAt(uvProf,hTop);
-  if(!b0||!bT)return null;
-  const pts=[{h:0,u:b0.u,v:b0.v}];
-  uvProf.forEach(p=>{ if(p.hgtAgl>0&&p.hgtAgl<hTop) pts.push({h:p.hgtAgl,u:p.u,v:p.v}); });
-  pts.push({h:hTop,u:bT.u,v:bT.v});
-  pts.sort((a,b)=>a.h-b.h);
-  let srh=0;
-  for(let i=0;i<pts.length-1;i++){
-    const a=pts[i],b=pts[i+1];
-    srh+=(b.u-cu)*(a.v-cv)-(a.u-cu)*(b.v-cv);
-  }
-  return srh;
-}
-function sondeUVToDirSpdKt(u,v){
-  let dir=Math.atan2(-u,-v)*180/Math.PI; if(dir<0)dir+=360;
-  return {dir,spdKt:Math.hypot(u,v)*1.94384};
-}
-/* Orchestrates the above into the set of tiles/panel rows shown. Needs at
-   least 3km of AGL wind coverage to mean anything — returns null below
-   that (e.g. a truncated or wind-sparse sounding). */
-function sondeStormRelativeIndices(profile,capeVal){
-  const uvProf=sondeUVProfile(profile);
-  if(!uvProf||uvProf.length<2)return null;
-  const topH=uvProf[uvProf.length-1].hgtAgl;
-  if(topH<3000)return null;
-  const bunkers=sondeBunkersStormMotion(uvProf);
-  if(!bunkers)return null;
-  const rm=bunkers.rightMover;
-  const shear6=sondeBulkShear(uvProf,Math.min(6000,topH));
-  const shear1=sondeBulkShear(uvProf,Math.min(1000,topH));
-  const srh1=sondeSRH(uvProf,rm.u,rm.v,1000);
-  const srh3=sondeSRH(uvProf,rm.u,rm.v,3000);
-  const brnMean6=sondeLayerMeanUV(uvProf,0,6000), brnMean05=sondeLayerMeanUV(uvProf,0,500);
-  const brnShearSq=(brnMean6&&brnMean05)?((brnMean6.u-brnMean05.u)**2+(brnMean6.v-brnMean05.v)**2):null;
-  return {
-    shear6Kt:shear6!=null?shear6*1.94384:null,
-    shear1Kt:shear1!=null?shear1*1.94384:null,
-    srh1,srh3,
-    ehi:(capeVal!=null&&srh3!=null)?(capeVal*srh3)/160000:null,
-    brn:(capeVal!=null&&brnShearSq&&brnShearSq>1e-6)?capeVal/(0.5*brnShearSq):null,
-    stormRM:sondeUVToDirSpdKt(rm.u,rm.v),
-    stormLM:sondeUVToDirSpdKt(bunkers.leftMover.u,bunkers.leftMover.v)
-  };
-}
 /* Interpret the indices into a short plain-language outlook. */
 function analyzeSounding(ind){
   const cape=sondeVal(ind,['CAPE using virtual','Convective Available']);
@@ -5290,20 +5165,6 @@ function renderRadiosonde(opts){
     const unit=ft!=null?'ft':'hPa';
     tiles+=`<div class="knmi-tile"><div class="knmi-tile-lbl">Freezing Level</div><div class="knmi-tile-val">${val} <small>${unit}</small></div></div>`;
   }
-  // Storm-relative wind indices — bulk shear, Bunkers storm motion, SRH,
-  // EHI, BRN. Needs at least 3km of AGL wind coverage; simply omitted
-  // (not an error state) on a truncated or wind-sparse sounding.
-  const storm=sondeStormRelativeIndices(parsed.profile,capeV);
-  if(storm){
-    const stormTile=(lbl,val,unit,cls)=>{ tiles+=`<div class="knmi-tile ${cls||''}"><div class="knmi-tile-lbl">${lbl}</div><div class="knmi-tile-val">${val}${unit?` <small>${unit}</small>`:''}</div></div>`; };
-    if(storm.stormRM)stormTile('Storm Motion',`${Math.round(storm.stormRM.dir)}°`,`@ ${Math.round(storm.stormRM.spdKt)}kt`);
-    if(storm.shear6Kt!=null)stormTile('0-6km Shear',Math.round(storm.shear6Kt),'kt',storm.shear6Kt>=40?'knmi-bad':storm.shear6Kt>=30?'knmi-warn':'knmi-ok');
-    if(storm.shear1Kt!=null)stormTile('0-1km Shear',Math.round(storm.shear1Kt),'kt');
-    if(storm.srh1!=null)stormTile('0-1km SRH',Math.round(storm.srh1),'m²/s²',storm.srh1>=250?'knmi-bad':storm.srh1>=150?'knmi-warn':'knmi-ok');
-    if(storm.srh3!=null)stormTile('0-3km SRH',Math.round(storm.srh3),'m²/s²',storm.srh3>=300?'knmi-bad':storm.srh3>=150?'knmi-warn':'knmi-ok');
-    if(storm.ehi!=null)stormTile('EHI',storm.ehi.toFixed(1),'',storm.ehi>=2?'knmi-bad':storm.ehi>=1?'knmi-warn':'knmi-ok');
-    if(storm.brn!=null)stormTile('BRN',Math.round(storm.brn));
-  }
   const box=`<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
     `<div class="forecast-label">Analysis — ${escapeHtml(a.headline)}</div>`+
     `<div class="forecast-text">${escapeHtml(a.text)||'No stability indices found in this sounding.'}</div>`+
@@ -5330,8 +5191,7 @@ function renderRadiosonde(opts){
       indices:{
         cape:capeV,cin:cinV,li:liV,k:kV,tt:ttV,pw:pwV,
         trend,
-        freezingLevel,
-        storm
+        freezingLevel
       }
     }};
     redrawSkewT();
@@ -5430,7 +5290,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeStormRelativeIndices,sondeBunkersStormMotion,sondeSRH,sondeUVProfile,exportSkewTPng,printSkewT};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,exportSkewTPng,printSkewT};
 })();
 </script>
 
