@@ -367,27 +367,19 @@ body::after{
 .tafb-box.img-failed img{display:none;}
 .tafb-link-btn{color:var(--accent);font-family:var(--mono);font-size:var(--fs-12);text-decoration:none;border:1px solid var(--accent);border-radius:8px;padding:8px 14px;white-space:nowrap;}
 .tafb-link-btn:hover{background:var(--accent);color:#04121c;}
-/* ── SKEW-T DIAGRAM (Univ. of Wyoming) ──
-   Tries the classic cgi-bin image endpoint (sondeSkewtGifUrl) via plain
-   <img> — a clean chart with no page chrome, if it decodes. On failure,
-   falls back to an <iframe> embedding the wsgi page (the same URL "Open
-   Skew-T in a new tab" uses) and crops it down to roughly just the chart
-   via fitSkewtFrame() (JS) — same oversized-element technique used for
-   the NHC TAFB image, but scaling a ~980px-wide render (see fitSkewtFrame
-   for why 980, not a narrow device-width viewport) rather than cropping a
-   fixed-size box directly. Numbers measured off a real device screenshot
-   of that exact URL opened in Safari, converted from the screenshot's
-   device px to the ~980px layout viewport Safari actually used. */
+/* ── SKEW-T DIAGRAM ──
+   Hand-drawn on a <canvas> from the T/Td/P/wind profile we already parse
+   (see drawSkewT()), instead of embedding/cropping the Univ. of Wyoming
+   page — several rounds of that (blind pixel-offset guesses against a
+   page this sandbox has no network access to verify) never quite landed,
+   and it's structurally unnecessary: we already have the data. */
 .skewt-box{
   position:relative;border-radius:12px;overflow:hidden;
   border:1px solid var(--border-bright);background:#fff;
   box-shadow:var(--shadow);
   width:100%;height:480px;display:block;
 }
-.skewt-box img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;display:block;}
-.skewt-box iframe{position:absolute;top:0;left:0;transform-origin:0 0;border:0;display:none;background:#fff;}
-.skewt-box.img-failed img{display:none;}
-.skewt-box.img-failed iframe{display:block;}
+.skewt-box canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
 /* Labels/names hidden — show only the map image. */
 .windy-lbl{display:none;}
 @media(max-width:960px){.windy-widget{--windy-h:260px;grid-template-columns:1fr 1fr;}}
@@ -4302,55 +4294,181 @@ function sondeSkewtPngUrl(dt){
   const Y=dt.getUTCFullYear(), M=pad(dt.getUTCMonth()+1), D=pad(dt.getUTCDate()), H=pad(dt.getUTCHours());
   return `https://weather.uwyo.edu/wsgi/sounding?datetime=${Y}-${M}-${D}%20${H}:00:00&id=${SONDE_STNM}&type=PNG:SKEWT&src=BUFR`;
 }
-/* Alternate source: the classic cgi-bin tool (same one already used for the
-   TEXT:LIST data) predates the newer wsgi rewrite that wraps everything in a
-   full HTML page — classic cgi-bin image requests are old-school and
-   typically emit the image directly with an image Content-Type, no page
-   template around it. If that holds here, plain <img> can decode it
-   directly, sidestepping the whole "crop out Wyoming's page chrome"
-   problem entirely. Tried first via <img onerror>, falling back to the
-   wsgi iframe above if it doesn't pan out — unverified from this sandbox
-   either way (no network access to confirm), same as the PNG endpoint was
-   originally. */
-function sondeSkewtGifUrl(dt){
-  const Y=dt.getUTCFullYear(), M=pad(dt.getUTCMonth()+1), D=pad(dt.getUTCDate()), H=pad(dt.getUTCHours());
-  return `https://weather.uwyo.edu/cgi-bin/sounding?region=samer&TYPE=GIF%3ASKEWT&YEAR=${Y}&MONTH=${M}&FROM=${D}${H}&TO=${D}${H}&STNM=${SONDE_STNM}`;
+/* ── SKEW-T CHART, hand-drawn from the parsed profile ──
+   Standard skew-T log-P layout: y is linear in ln(pressure) (1000hPa at
+   the bottom, 100hPa at the top); x is temperature skewed by a constant
+   fraction of the height already climbed, so isotherms run bottom-left to
+   top-right at roughly 45°, matching the conventional layout. Background
+   guide lines (dry adiabats, moist adiabats, mixing ratio lines) reuse the
+   exact same thermodynamic formulas already relied on for the CAPE/CIN/LI
+   indices above (sondeTheta/sondeTOnDryAdiabat/sondeMoistLapse/sondeMixR) —
+   this is the same profile data, just plotted instead of only tabulated. */
+function sondeMixRInvT(w,P){ // inverse of sondeMixR: T (°C) at which sat. mixing ratio equals w (g/kg) at pressure P
+  const es=w*P/(622+w);
+  const L=Math.log(es/6.112);
+  return 243.5*L/(17.67-L);
 }
-/* Crops the Skew-T <iframe> fallback down to just the chart. Forcing the
-   iframe to a narrow ~375px viewport (an earlier version of this function)
-   was the wrong model: mobile Safari renders legacy pages with no viewport
-   meta tag against a ~980px *layout* viewport and then visually shrinks
-   the whole thing to fit the screen — a behavior specific to top-level
-   navigation that an <iframe> does NOT get, since an iframe's declared
-   width IS its layout viewport directly. Switching to a ~980px viewport
-   fixed the zoom level, but the crop box itself was still off (measured
-   from the wrong reference points): it started at the 300hPa line instead
-   of the chart's title/100hPa top, and ran past the attribution line into
-   the page's footer paragraphs and blank trailing space. This round's
-   CROP_TOP/CROP_H were re-derived by comparing that screenshot against a
-   clean reference crop of the same chart to work out the actual title→300hPa
-   and 300hPa→attribution proportions, rather than reusing the original
-   banner/sidebar pixel measurements, which turned out to have missed the
-   gap between the banner and where the chart content actually starts. */
-function fitSkewtFrame(box){
-  if(!box) return;
-  const frame=box.querySelector('iframe');
-  if(!frame) return;
-  const VIEWPORT_W=1000, VIEWPORT_H=860;
-  const CROP_LEFT=227, CROP_TOP=126, CROP_W=770, CROP_H=630;
-  const boxW=box.clientWidth||CROP_W;
-  const scale=boxW/CROP_W;
-  frame.style.width=VIEWPORT_W+'px';
-  frame.style.height=VIEWPORT_H+'px';
-  frame.style.left=Math.round(-CROP_LEFT*scale)+'px';
-  frame.style.top=Math.round(-CROP_TOP*scale)+'px';
-  frame.style.transform=`scale(${scale})`;
-  box.style.height=Math.round(CROP_H*scale)+'px';
+function skewTGeom(W,H){
+  const pad={l:40,r:38,t:26,b:44};
+  const plotW=Math.max(10,W-pad.l-pad.r), plotH=Math.max(10,H-pad.t-pad.b);
+  const PBOT=1000,PTOP=100,TMIN=-40,TMAX=45;
+  const SKEW=plotW/plotH;
+  const yOf=P=>pad.t+plotH*(Math.log(P)-Math.log(PTOP))/(Math.log(PBOT)-Math.log(PTOP));
+  const yBottom=yOf(PBOT);
+  const xBase=T=>pad.l+plotW*(T-TMIN)/(TMAX-TMIN);
+  const xOf=(T,P)=>xBase(T)+SKEW*(yBottom-yOf(P));
+  return {W,H,pad,plotW,plotH,PBOT,PTOP,TMIN,TMAX,SKEW,yOf,yBottom,xBase,xOf};
 }
-window.fitSkewtFrame=fitSkewtFrame; // inline onerror="" handlers run in global scope, can't see script-local fns
-window.addEventListener('resize',()=>{
-  document.querySelectorAll('.skewt-box.img-failed').forEach(fitSkewtFrame);
-});
+/* Standard meteorological wind barb: shaft points toward the compass
+   direction the wind is blowing FROM (canvas rotate() is clockwise with
+   0=up, matching 0°=N/90°=E), with pennants (50kt), full barbs (10kt) and
+   half barbs (5kt) stacked from the tip inward. */
+function drawWindBarb(ctx,x,y,dirDeg,speedKt,len){
+  if(dirDeg==null||speedKt==null||!isFinite(dirDeg)||!isFinite(speedKt))return;
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.rotate(dirDeg*Math.PI/180);
+  ctx.strokeStyle='#111';ctx.fillStyle='#111';ctx.lineWidth=1.1;
+  ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(0,-len);ctx.stroke();
+  let spd=Math.round(speedKt/5)*5,tip=-len;
+  const step=4.2;
+  ctx.beginPath();
+  while(spd>=50){
+    ctx.moveTo(0,tip);ctx.lineTo(7,tip+step*1.4);ctx.lineTo(0,tip+step*2.6);ctx.closePath();
+    tip+=step*2.6;spd-=50;
+  }
+  ctx.fill();
+  ctx.beginPath();
+  while(spd>=10){
+    ctx.moveTo(0,tip);ctx.lineTo(7,tip+step*1.4);
+    tip+=step;spd-=10;
+  }
+  if(spd>=5){ ctx.moveTo(0,tip);ctx.lineTo(3.5,tip+step*0.7); }
+  ctx.stroke();
+  ctx.restore();
+}
+function drawSkewT(canvas,profile,meta){
+  if(!canvas||!canvas.getContext)return false;
+  const cssW=canvas.clientWidth||600,cssH=canvas.clientHeight||420;
+  if(cssW<20||cssH<20)return false;
+  const dpr=window.devicePixelRatio||1;
+  canvas.width=Math.round(cssW*dpr);canvas.height=Math.round(cssH*dpr);
+  const ctx=canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const g=skewTGeom(cssW,cssH);
+  const prof=(profile||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>b.p-a.p);
+
+  ctx.clearRect(0,0,cssW,cssH);
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,cssW,cssH);
+
+  ctx.save();
+  ctx.beginPath();ctx.rect(g.pad.l,g.pad.t,g.plotW,g.plotH);ctx.clip();
+
+  ctx.strokeStyle='rgba(0,0,0,0.22)';ctx.lineWidth=1;
+  [1000,900,800,700,600,500,400,300,200,100].forEach(P=>{
+    const y=g.yOf(P);
+    ctx.beginPath();ctx.moveTo(g.pad.l,y);ctx.lineTo(g.pad.l+g.plotW,y);ctx.stroke();
+  });
+
+  ctx.strokeStyle='rgba(120,120,120,0.55)';ctx.lineWidth=1;
+  for(let T=-100;T<=60;T+=10){
+    ctx.beginPath();
+    ctx.moveTo(g.xOf(T,g.PBOT),g.yOf(g.PBOT));
+    ctx.lineTo(g.xOf(T,g.PTOP),g.yOf(g.PTOP));
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle='rgba(190,120,40,0.55)';ctx.lineWidth=1;
+  for(let theta=-30;theta<=150;theta+=10){
+    ctx.beginPath();let first=true;
+    for(let P=g.PBOT;P>=g.PTOP;P-=20){
+      const x=g.xOf(sondeTOnDryAdiabat(theta,P),P),y=g.yOf(P);
+      if(first){ctx.moveTo(x,y);first=false;}else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle='rgba(40,120,190,0.55)';ctx.lineWidth=1;
+  for(let Tsfc=-20;Tsfc<=40;Tsfc+=5){
+    ctx.beginPath();
+    let T=Tsfc,P=g.PBOT;
+    ctx.moveTo(g.xOf(T,P),g.yOf(P));
+    const dP=-10;
+    while(P+dP>=g.PTOP){
+      const k1=sondeMoistLapse(T,P);
+      const k2=sondeMoistLapse(T+dP/2*k1,P+dP/2);
+      const k3=sondeMoistLapse(T+dP/2*k2,P+dP/2);
+      const k4=sondeMoistLapse(T+dP*k3,P+dP);
+      T=T+dP/6*(k1+2*k2+2*k3+k4);P=P+dP;
+      ctx.lineTo(g.xOf(T,P),g.yOf(P));
+    }
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle='rgba(30,140,60,0.6)';ctx.setLineDash([4,3]);ctx.lineWidth=1;
+  [0.4,1,2,4,7,10,16,24,32].forEach(w=>{
+    ctx.beginPath();let first=true;
+    for(let P=g.PBOT;P>=400;P-=20){
+      const x=g.xOf(sondeMixRInvT(w,P),P),y=g.yOf(P);
+      if(first){ctx.moveTo(x,y);first=false;}else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  if(prof.length>1){
+    ctx.strokeStyle='#c0392b';ctx.lineWidth=2.4;ctx.lineJoin='round';
+    ctx.beginPath();
+    prof.forEach((r,i)=>{ const x=g.xOf(r.t,r.p),y=g.yOf(r.p); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+    ctx.stroke();
+    const tdPts=prof.filter(r=>r.td!=null);
+    if(tdPts.length>1){
+      ctx.strokeStyle='#1a7a3c';ctx.lineWidth=2.4;
+      ctx.beginPath();
+      tdPts.forEach((r,i)=>{ const x=g.xOf(r.td,r.p),y=g.yOf(r.p); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+
+  ctx.strokeStyle='#000';ctx.lineWidth=1.4;
+  ctx.strokeRect(g.pad.l,g.pad.t,g.plotW,g.plotH);
+
+  ctx.fillStyle='#000';ctx.font='11px sans-serif';ctx.textAlign='right';ctx.textBaseline='middle';
+  [1000,900,800,700,600,500,400,300,200,100].forEach(P=>{
+    ctx.fillText(String(P),g.pad.l-5,g.yOf(P));
+  });
+
+  ctx.textAlign='center';ctx.textBaseline='top';
+  for(let T=Math.ceil(g.TMIN/10)*10;T<=g.TMAX;T+=10){
+    ctx.fillText(String(T),g.xOf(T,g.PBOT),g.yBottom+4);
+  }
+
+  const barbX=g.pad.l+g.plotW+18;
+  let lastY=-999;
+  prof.forEach(r=>{
+    if(r.drct==null||r.sknt==null)return;
+    const y=g.yOf(r.p);
+    if(y<g.pad.t||y>g.yBottom||Math.abs(y-lastY)<14)return;
+    lastY=y;
+    drawWindBarb(ctx,barbX,y,r.drct,r.sknt,16);
+  });
+
+  ctx.fillStyle='#000';ctx.font='bold 12px sans-serif';ctx.textAlign='left';ctx.textBaseline='alphabetic';
+  ctx.fillText((meta&&meta.title)||'Skew-T log-P',6,14);
+  ctx.font='10px sans-serif';ctx.textAlign='left';ctx.textBaseline='top';
+  const legendY=g.yBottom+18;
+  ctx.fillStyle='#c0392b';ctx.fillText('— Temp',g.pad.l,legendY);
+  ctx.fillStyle='#1a7a3c';ctx.fillText('— Dewpoint',g.pad.l+48,legendY);
+
+  return true;
+}
+let __skewtLast=null;
+function redrawSkewT(){
+  const canvas=document.querySelector('.skewt-box canvas');
+  if(canvas&&__skewtLast) drawSkewT(canvas,__skewtLast.profile,__skewtLast.meta);
+}
+window.addEventListener('resize',redrawSkewT);
 /* Fetch the sounding page's raw HTML. Deliberately does NOT use the generic
    robustFetchText()/fetchWithRetries() pipeline used elsewhere — that races in
    r.jina.ai's reader, which converts pages to markdown and destroys the
@@ -4393,13 +4511,23 @@ function parseSounding(rawHtml){
   }
   // Profile rows: fixed-width columns PRES(0-7) HGHT(7-14) TEMP(14-21) DWPT(21-28)
   // RELH(28-35) MIXR(35-42) DRCT(42-49) SKNT(49-56). Only accept purely numeric
-  // lines so headers/units/index lines never match.
+  // lines so headers/units/index lines never match. HGHT/DRCT/SKNT are only
+  // used for the wind-barb column on the hand-drawn Skew-T chart — missing or
+  // malformed values there just mean that level skips its barb, not a parse
+  // failure, so they're left null rather than rejecting the whole line.
   const profile=[];
   html.replace(/<[^>]+>/g,'\n').split(/\n/).forEach(line=>{
     if(line.length<21||!/^[\d\s.\-]+$/.test(line.trim())||!line.trim())return;
     const p=parseFloat(line.slice(0,7)), t=parseFloat(line.slice(14,21)), td=parseFloat(line.slice(21,28));
     if(!(isFinite(p)&&p>=100&&p<=1100&&isFinite(t)&&t>-120&&t<60))return;
-    profile.push({p,t,td:(isFinite(td)&&td>-120&&td<60)?td:null});
+    const hgt=parseFloat(line.slice(7,14));
+    const drct=parseFloat(line.slice(42,49)), sknt=parseFloat(line.slice(49,56));
+    profile.push({
+      p,t,td:(isFinite(td)&&td>-120&&td<60)?td:null,
+      hgt:isFinite(hgt)?hgt:null,
+      drct:(isFinite(drct)&&drct>=0&&drct<=360)?drct:null,
+      sknt:(isFinite(sknt)&&sknt>=0&&sknt<300)?sknt:null
+    });
   });
   if(Object.keys(ind).length<4&&profile.length<8) return null;
   return {obsTime,ind,profile};
@@ -4668,19 +4796,20 @@ function renderRadiosonde(opts){
     `<div class="forecast-text">${escapeHtml(a.text)||'No stability indices found in this sounding.'}</div>`+
   `</div></div>`;
   const cycleDt=cycleIso?new Date(cycleIso):null;
-  const gifUrl=cycleDt?sondeSkewtGifUrl(cycleDt):null;
   const pngUrl=cycleDt?sondeSkewtPngUrl(cycleDt):null;
-  const skewtBox=(gifUrl&&pngUrl)?`<div class="skewt-box">`+
-      `<img alt="Skew-T log-P — TNCC 78988" src="${escapeHtml(gifUrl)}" referrerpolicy="no-referrer-when-downgrade" onerror="this.closest('.skewt-box').classList.add('img-failed');fitSkewtFrame(this.closest('.skewt-box'))">`+
-      `<iframe title="Skew-T log-P — TNCC 78988" src="${escapeHtml(pngUrl)}" referrerpolicy="no-referrer-when-downgrade"></iframe>`+
-    `</div>`:'';
+  const canPlot=(parsed.profile||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).length>=2;
+  const skewtBox=canPlot?`<div class="skewt-box"><canvas></canvas></div>`:'';
   const links=[
-    pngUrl?`<a class="sonde-link sonde-link-big" href="${escapeHtml(pngUrl)}" target="_blank" rel="noopener">Open Skew-T in a new tab ↗</a>`:'',
+    pngUrl?`<a class="sonde-link sonde-link-big" href="${escapeHtml(pngUrl)}" target="_blank" rel="noopener">View official chart (Univ. of Wyoming) ↗</a>`:'',
     srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding text data ↗</a>`:''
   ].filter(Boolean).join('');
   content.innerHTML=
     `<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`+
     box+(tiles?`<div class="sonde-grid">${tiles}</div>`:'')+skewtBox+links;
+  if(canPlot){
+    __skewtLast={profile:parsed.profile,meta:{title:`78988 TNCC${parsed.obsTime?' · '+parsed.obsTime:''}`}};
+    redrawSkewT();
+  }
   return true;
 }
 /* Alert once per genuinely new cycle (not on every re-fetch of the same
@@ -4771,7 +4900,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,sondeSkewtGifUrl,fitSkewtFrame};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT};
 })();
 </script>
 
