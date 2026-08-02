@@ -4320,6 +4320,29 @@ function sondeMixRInvT(w,P){ // inverse of sondeMixR: T (°C) at which sat. mixi
   const L=Math.log(es/6.112);
   return 243.5*L/(17.67-L);
 }
+/* First 0°C crossing scanning down from the top — the "highest" freezing
+   level if the profile has more than one (e.g. a low-level inversion). */
+function sondeFreezingLevel(profile){
+  const prof=(profile||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>a.p-b.p); // top-down
+  for(let i=0;i<prof.length-1;i++){
+    const a=prof[i],b=prof[i+1];
+    if((a.t<=0&&b.t>=0)||(a.t>=0&&b.t<=0)){
+      const f=(0-a.t)/((b.t-a.t)||1e-9);
+      const p=a.p+(b.p-a.p)*f;
+      const hgt=(a.hgt!=null&&b.hgt!=null)?a.hgt+(b.hgt-a.hgt)*f:null;
+      return {p,hgt};
+    }
+  }
+  return null;
+}
+function sondeMaxWind(profile){
+  let best=null;
+  (profile||[]).forEach(r=>{
+    if(r.sknt==null||!isFinite(r.sknt))return;
+    if(!best||r.sknt>best.sknt)best=r;
+  });
+  return best;
+}
 function skewTGeom(W,H){
   // Title block above the plot scales with width — on a narrow phone canvas
   // only the first line fits, so don't reserve space for lines we won't draw.
@@ -4518,11 +4541,19 @@ function drawSkewT(canvas,profile,meta){
   if(idx.k!=null)statRows.push(['K',idx.k.toFixed(0)]);
   if(idx.tt!=null)statRows.push(['TT',idx.tt.toFixed(0)]);
   if(idx.pw!=null)statRows.push(['PW',idx.pw.toFixed(0)+' mm']);
+  if(idx.freezingLevel){
+    const fz=idx.freezingLevel;
+    const val=fz.hgt!=null?(fz.hgt*3.28084>=1000?(fz.hgt*3.28084/1000).toFixed(1)+'kft':Math.round(fz.hgt*3.28084)+'ft'):Math.round(fz.p)+'hPa';
+    statRows.push(['FRZ LVL',val]);
+  }
+  if(idx.maxWind){
+    statRows.push(['MAX WD',`${Math.round(idx.maxWind.sknt)}kt@${Math.round(idx.maxWind.p)}`]);
+  }
   if(statRows.length){
-    const bx=g.pad.l+5,by=g.pad.t+5,lineH=12,boxW=84,boxH=statRows.length*lineH+7;
+    const bx=g.pad.l+5,by=g.pad.t+5,lineH=12,boxW=112,boxH=statRows.length*lineH+7;
     ctx.fillStyle='rgba(255,255,255,0.88)';ctx.fillRect(bx,by,boxW,boxH);
     ctx.strokeStyle='rgba(0,0,0,0.45)';ctx.lineWidth=1;ctx.strokeRect(bx,by,boxW,boxH);
-    ctx.font='10px sans-serif';ctx.textBaseline='top';
+    ctx.font='9px sans-serif';ctx.textBaseline='top';
     statRows.forEach((r,i)=>{
       const ry=by+4+i*lineH;
       ctx.textAlign='left';ctx.fillStyle='#444';ctx.fillText(r[0],bx+5,ry);
@@ -4907,7 +4938,9 @@ function renderRadiosonde(opts){
         li:sondeVal(ind,['LIFT computed','Lifted index']),
         k:sondeVal(ind,['K index']),
         tt:sondeVal(ind,['Totals totals']),
-        pw:sondeVal(ind,['Precipitable water'])
+        pw:sondeVal(ind,['Precipitable water']),
+        freezingLevel:sondeFreezingLevel(parsed.profile),
+        maxWind:sondeMaxWind(parsed.profile)
       }
     }};
     redrawSkewT();
