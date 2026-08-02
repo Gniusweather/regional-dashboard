@@ -765,6 +765,13 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
 }
 .knmi-tile-val{font-size:var(--fs-20);font-weight:700;color:#d0e8ff;line-height:1.1;}
 .knmi-tile-val small{font-size:var(--fs-12);font-weight:600;color:rgba(200,225,255,0.45);margin-left:2px;}
+/* Trend vs. the previous sounding cycle — neutral colors, since "up" isn't
+   inherently good or bad the same way across every index (more CAPE is
+   more energy, but a rising Lifted Index means more stable). */
+.knmi-trend{margin-left:5px;font-size:0.8em;font-weight:700;}
+.knmi-trend-up{color:#7fa8ff;}
+.knmi-trend-down{color:#ffa07f;}
+.knmi-trend-flat{color:rgba(200,225,255,0.4);}
 .knmi-tile.knmi-warn{border-color:rgba(245,158,11,0.55);}
 .knmi-tile.knmi-warn::before{background:linear-gradient(90deg,var(--warn),transparent 70%);}
 .knmi-tile.knmi-warn .knmi-tile-val{color:var(--warn);}
@@ -4333,6 +4340,21 @@ function sondeMaxWind(profile){
   });
   return best;
 }
+function sondeCompassAbbr(deg){
+  if(deg==null||!isFinite(deg))return '';
+  const dirs=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  return dirs[Math.round(((deg%360)+360)%360/22.5)%16];
+}
+/* Trend arrow comparing this cycle's value against the previous one — null
+   if either side is missing (nothing to compare) or the change is inside
+   the noise threshold for that index (avoids a jittery arrow on a value
+   that's essentially unchanged run to run). */
+function sondeTrend(cur,prev,threshold){
+  if(cur==null||prev==null||!isFinite(cur)||!isFinite(prev))return null;
+  const d=cur-prev;
+  if(Math.abs(d)<threshold)return '→';
+  return d>0?'↑':'↓';
+}
 function skewTGeom(W,H){
   // Title block above the plot scales with width — on a narrow phone canvas
   // only the first line fits, so don't reserve space for lines we won't draw.
@@ -4341,8 +4363,14 @@ function skewTGeom(W,H){
   // axis (not overlaid on the plot itself), so the numbers are baked into
   // the same canvas as the chart — printing or saving the image gets both
   // together. Skipped below a width where it'd crowd the plot too much.
-  const indicesW=W>=480?92:(W>=360?76:60);
-  const pad={l:38+indicesW,r:34,t:12+titleLines*13,b:22};
+  const indicesW=W>=480?92:(W>=360?76:68);
+  // Summary block: a fixed number of full-width wrapped lines reserved
+  // below the title, for the same plain-English analysis text shown above
+  // the chart in HTML — reads better wrapped across the full width than
+  // squeezed into the narrow indices column. Narrower canvases wrap the
+  // same text into more, shorter lines, so reserve more of them.
+  const summaryLines=W>=700?2:(W>=450?3:4);
+  const pad={l:38+indicesW,r:34,t:12+titleLines*13+summaryLines*11+4,b:22};
   const plotW=Math.max(10,W-pad.l-pad.r), plotH=Math.max(10,H-pad.t-pad.b);
   const PBOT=1000,PTOP=100,TMIN=-40,TMAX=60;
   const SKEW=plotW/plotH;
@@ -4350,7 +4378,7 @@ function skewTGeom(W,H){
   const yBottom=yOf(PBOT);
   const xBase=T=>pad.l+plotW*(T-TMIN)/(TMAX-TMIN);
   const xOf=(T,P)=>xBase(T)+SKEW*(yBottom-yOf(P));
-  return {W,H,pad,plotW,plotH,PBOT,PTOP,TMIN,TMAX,SKEW,titleLines,indicesW,yOf,yBottom,xBase,xOf};
+  return {W,H,pad,plotW,plotH,PBOT,PTOP,TMIN,TMAX,SKEW,titleLines,indicesW,summaryLines,yOf,yBottom,xBase,xOf};
 }
 /* Standard meteorological wind barb: shaft points toward the compass
    direction the wind is blowing FROM (canvas rotate() is clockwise with
@@ -4532,18 +4560,23 @@ function drawSkewT(canvas,profile,meta){
   // so it prints/saves together with the chart as one image.
   if(g.indicesW>0){
     const idx=(meta&&meta.indices)||{};
+    const tr=idx.trend||{};
+    const trendGlyph={'↑':' ↑','↓':' ↓','→':' →'};
     const rows=[];
-    if(idx.cape!=null)rows.push(['CAPE',Math.round(idx.cape)+' J/kg']);
-    if(idx.cin!=null)rows.push(['CIN',Math.round(idx.cin)+' J/kg']);
-    if(idx.li!=null)rows.push(['LI',idx.li.toFixed(1)]);
-    if(idx.k!=null)rows.push(['K',idx.k.toFixed(0)]);
-    if(idx.tt!=null)rows.push(['TT',idx.tt.toFixed(0)]);
-    if(idx.pw!=null)rows.push(['PW',idx.pw.toFixed(0)+' mm']);
+    if(idx.cape!=null)rows.push(['CAPE',Math.round(idx.cape)+' J/kg'+(trendGlyph[tr.cape]||'')]);
+    if(idx.cin!=null)rows.push(['CIN',Math.round(idx.cin)+' J/kg'+(trendGlyph[tr.cin]||'')]);
+    if(idx.li!=null)rows.push(['LI',idx.li.toFixed(1)+(trendGlyph[tr.li]||'')]);
+    if(idx.k!=null)rows.push(['K',idx.k.toFixed(0)+(trendGlyph[tr.k]||'')]);
+    if(idx.tt!=null)rows.push(['TT',idx.tt.toFixed(0)+(trendGlyph[tr.tt]||'')]);
+    if(idx.pw!=null)rows.push(['PW',idx.pw.toFixed(0)+' mm'+(trendGlyph[tr.pw]||'')]);
     if(idx.freezingLevel){
       const fz=idx.freezingLevel, ft=fz.hgt!=null?fz.hgt*3.28084:null;
       rows.push(['FRZ LVL',ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'kft':Math.round(ft)+'ft'):Math.round(fz.p)+'hPa']);
     }
-    if(idx.maxWind)rows.push(['MAX WD',`${Math.round(idx.maxWind.sknt)}kt@${Math.round(idx.maxWind.p)}`]);
+    if(idx.maxWind){
+      const mw=idx.maxWind, dirTxt=mw.drct!=null?sondeCompassAbbr(mw.drct):'';
+      rows.push(['MAX WD',`${Math.round(mw.sknt)}kt ${dirTxt}@${Math.round(mw.p)}`]);
+    }
     if(rows.length){
       const px=6,pw=g.indicesW-10;
       let py=g.pad.t;
@@ -4578,6 +4611,36 @@ function drawSkewT(canvas,profile,meta){
     ctx.fillText('University of Wyoming sounding data',g.pad.l+g.plotW,g.H-4);
   }
 
+  // Plain-English summary — same analysis text shown in the HTML card above
+  // the chart, wrapped across the plot's full width and baked into the
+  // canvas so it prints/exports together with everything else. Truncated
+  // with an ellipsis if it runs past the reserved line budget rather than
+  // spilling into the plot area below.
+  const sm=(meta&&meta.summary)||{};
+  const summaryFull=[sm.headline,sm.text].filter(Boolean).join(' — ');
+  if(summaryFull&&g.summaryLines>0){
+    ctx.font='9.5px sans-serif';ctx.fillStyle='#222';ctx.textAlign='left';ctx.textBaseline='top';
+    const maxW=g.plotW;
+    const words=summaryFull.split(' ');
+    const lines=[];
+    let cur='';
+    for(const w of words){
+      const test=cur?cur+' '+w:w;
+      if(ctx.measureText(test).width>maxW&&cur){ lines.push(cur); cur=w; }
+      else cur=test;
+      if(lines.length>=g.summaryLines)break;
+    }
+    if(cur&&lines.length<g.summaryLines)lines.push(cur);
+    if(lines.length>g.summaryLines)lines.length=g.summaryLines;
+    if(lines.length===g.summaryLines&&(lines.join(' ').length<summaryFull.length)){
+      let last=lines[lines.length-1];
+      while(last.length>1&&ctx.measureText(last+'…').width>maxW) last=last.slice(0,-1);
+      lines[lines.length-1]=last+'…';
+    }
+    const startY=12+g.titleLines*13+3;
+    lines.forEach((line,i)=>ctx.fillText(line,g.pad.l,startY+i*11));
+  }
+
   return true;
 }
 let __skewtLast=null;
@@ -4586,6 +4649,41 @@ function redrawSkewT(){
   if(canvas&&__skewtLast) drawSkewT(canvas,__skewtLast.profile,__skewtLast.meta);
 }
 window.addEventListener('resize',redrawSkewT);
+/* Redraw once at a large, fixed size so the exported/printed image is
+   crisp regardless of how small the on-screen box currently is, then
+   restore the on-screen canvas back to its normal size afterward. */
+function skewtHiResDataUrl(){
+  const canvas=document.querySelector('.skewt-box canvas');
+  if(!canvas||!__skewtLast) return null;
+  const liveW=canvas.clientWidth,liveH=canvas.clientHeight;
+  const tmp=document.createElement('canvas');
+  tmp.style.position='fixed';tmp.style.left='-99999px';
+  tmp.style.width='1400px';tmp.style.height='900px';
+  document.body.appendChild(tmp);
+  drawSkewT(tmp,__skewtLast.profile,__skewtLast.meta);
+  const url=tmp.toDataURL('image/png');
+  document.body.removeChild(tmp);
+  return url;
+}
+function exportSkewTPng(){
+  const url=skewtHiResDataUrl();
+  if(!url) return;
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`skewt-TNCC-78988-${new Date().toISOString().replace(/[:T]/g,'-').slice(0,16)}.png`;
+  document.body.appendChild(a);a.click();a.remove();
+}
+function printSkewT(){
+  const url=skewtHiResDataUrl();
+  if(!url) return;
+  const w=window.open('','_blank');
+  if(!w) return; // popup blocked — nothing we can do without a user gesture retry
+  w.document.write(`<!doctype html><html><head><title>Skew-T — TNCC 78988</title></head>`+
+    `<body style="margin:0;text-align:center;"><img src="${url}" style="max-width:100%;" onload="window.print()"></body></html>`);
+  w.document.close();
+}
+window.exportSkewTPng=exportSkewTPng; // inline onclick="" handlers run in global scope
+window.printSkewT=printSkewT;
 /* Fetch the sounding page's raw HTML. Deliberately does NOT use the generic
    robustFetchText()/fetchWithRetries() pipeline used elsewhere — that races in
    r.jina.ai's reader, which converts pages to markdown and destroys the
@@ -4863,16 +4961,16 @@ function analyzeSounding(ind){
   return {icon,headline,text:parts.join('. ')+(parts.length?'.':'')};
 }
 /* Index tiles, colour-banded like the KNMI tiles. */
-function sondeTilesHtml(ind){
+function sondeTilesHtml(ind,trend){
   const defs=[
-    {names:['CAPE using virtual','Convective Available'],lbl:'CAPE',unit:'J/kg',band:v=>v>=2500?'knmi-bad':v>=1000?'knmi-warn':'knmi-ok'},
-    {names:['CINS using virtual','Convective Inhibition'],lbl:'CIN',unit:'J/kg',band:v=>v<=-100?'knmi-warn':'knmi-ok'},
-    {names:['LIFT computed','Lifted index'],lbl:'Lifted Index',unit:'',band:v=>v<=-6?'knmi-bad':v<=-3?'knmi-warn':'knmi-ok'},
+    {names:['CAPE using virtual','Convective Available'],lbl:'CAPE',unit:'J/kg',band:v=>v>=2500?'knmi-bad':v>=1000?'knmi-warn':'knmi-ok',trendKey:'cape'},
+    {names:['CINS using virtual','Convective Inhibition'],lbl:'CIN',unit:'J/kg',band:v=>v<=-100?'knmi-warn':'knmi-ok',trendKey:'cin'},
+    {names:['LIFT computed','Lifted index'],lbl:'Lifted Index',unit:'',band:v=>v<=-6?'knmi-bad':v<=-3?'knmi-warn':'knmi-ok',trendKey:'li'},
     {names:['Showalter'],lbl:'Showalter',unit:'',band:v=>v<=-3?'knmi-bad':v<=0?'knmi-warn':'knmi-ok'},
-    {names:['K index'],lbl:'K Index',unit:'',band:v=>v>=35?'knmi-bad':v>=26?'knmi-warn':'knmi-ok'},
-    {names:['Totals totals'],lbl:'Total Totals',unit:'',band:v=>v>=50?'knmi-bad':v>=44?'knmi-warn':'knmi-ok'},
+    {names:['K index'],lbl:'K Index',unit:'',band:v=>v>=35?'knmi-bad':v>=26?'knmi-warn':'knmi-ok',trendKey:'k'},
+    {names:['Totals totals'],lbl:'Total Totals',unit:'',band:v=>v>=50?'knmi-bad':v>=44?'knmi-warn':'knmi-ok',trendKey:'tt'},
     {names:['SWEAT'],lbl:'SWEAT',unit:'',band:v=>v>=300?'knmi-warn':'knmi-ok'},
-    {names:['Precipitable water'],lbl:'Precip Water',unit:'mm',band:v=>v>=50?'knmi-warn':'knmi-ok'},
+    {names:['Precipitable water'],lbl:'Precip Water',unit:'mm',band:v=>v>=50?'knmi-warn':'knmi-ok',trendKey:'pw'},
     {names:['Pres [hPa] of the Lifted'],lbl:'LCL',unit:'hPa',band:null},
     {names:['thickness'],lbl:'1000–500 Thk',unit:'m',band:null}
   ];
@@ -4882,7 +4980,9 @@ function sondeTilesHtml(ind){
     if(v==null)return;
     const cls=d.band?d.band(v):'';
     const disp=Math.abs(v)>=100?Math.round(v):+v.toFixed(1);
-    h+=`<div class="knmi-tile ${cls}"><div class="knmi-tile-lbl">${d.lbl}</div><div class="knmi-tile-val">${disp}${d.unit?` <small>${d.unit}</small>`:''}</div></div>`;
+    const t=d.trendKey&&trend?trend[d.trendKey]:null;
+    const trendSpan=t?`<span class="knmi-trend knmi-trend-${t==='↑'?'up':t==='↓'?'down':'flat'}" title="vs. previous cycle">${t}</span>`:'';
+    h+=`<div class="knmi-tile ${cls}"><div class="knmi-tile-lbl">${d.lbl}</div><div class="knmi-tile-val">${disp}${d.unit?` <small>${d.unit}</small>`:''}${trendSpan}</div></div>`;
     shown++;
   });
   return shown?h:'';
@@ -4903,14 +5003,31 @@ async function sondeFindParsedText(){
 function renderRadiosonde(opts){
   const content=byId('sondeContent');
   if(!content) return false;
-  const parsed=opts&&opts.parsed, srcUrl=opts&&opts.srcUrl, cycleIso=opts&&opts.cycleIso;
+  const parsed=opts&&opts.parsed, srcUrl=opts&&opts.srcUrl, cycleIso=opts&&opts.cycleIso, previousParsed=opts&&opts.previousParsed;
   if(!parsed) return false;
   const ind=sondeMergedIndices(parsed.ind,parsed.profile);
+  const prevInd=previousParsed?sondeMergedIndices(previousParsed.ind,previousParsed.profile):null;
   const a=analyzeSounding(ind);
   const cycleDt=cycleIso?new Date(cycleIso):null;
   const canPlot=(parsed.profile||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).length>=2;
   const freezingLevel=sondeFreezingLevel(parsed.profile), maxWind=sondeMaxWind(parsed.profile);
-  let tiles=sondeTilesHtml(ind);
+  const capeV=sondeVal(ind,['CAPE using virtual','Convective Available']);
+  const cinV=sondeVal(ind,['CINS using virtual','Convective Inhibition']);
+  const liV=sondeVal(ind,['LIFT computed','Lifted index']);
+  const kV=sondeVal(ind,['K index']);
+  const ttV=sondeVal(ind,['Totals totals']);
+  const pwV=sondeVal(ind,['Precipitable water']);
+  // Trend vs. the previous cycle — null (no arrow) when there's nothing to
+  // compare against yet, e.g. the very first sounding load this session.
+  const trend=prevInd?{
+    cape:sondeTrend(capeV,sondeVal(prevInd,['CAPE using virtual','Convective Available']),150),
+    cin:sondeTrend(cinV,sondeVal(prevInd,['CINS using virtual','Convective Inhibition']),25),
+    li:sondeTrend(liV,sondeVal(prevInd,['LIFT computed','Lifted index']),0.5),
+    k:sondeTrend(kV,sondeVal(prevInd,['K index']),1.5),
+    tt:sondeTrend(ttV,sondeVal(prevInd,['Totals totals']),1.5),
+    pw:sondeTrend(pwV,sondeVal(prevInd,['Precipitable water']),2)
+  }:{};
+  let tiles=sondeTilesHtml(ind,trend);
   if(freezingLevel){
     const ft=freezingLevel.hgt!=null?freezingLevel.hgt*3.28084:null;
     const val=ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'k':Math.round(ft)):Math.round(freezingLevel.p);
@@ -4918,7 +5035,8 @@ function renderRadiosonde(opts){
     tiles+=`<div class="knmi-tile"><div class="knmi-tile-lbl">Freezing Level</div><div class="knmi-tile-val">${val} <small>${unit}</small></div></div>`;
   }
   if(maxWind){
-    tiles+=`<div class="knmi-tile"><div class="knmi-tile-lbl">Max Wind</div><div class="knmi-tile-val">${Math.round(maxWind.sknt)} <small>kt @ ${Math.round(maxWind.p)}hPa</small></div></div>`;
+    const dirTxt=maxWind.drct!=null?`${sondeCompassAbbr(maxWind.drct)} ${Math.round(maxWind.drct)}°`:'';
+    tiles+=`<div class="knmi-tile"><div class="knmi-tile-lbl">Max Wind</div><div class="knmi-tile-val">${Math.round(maxWind.sknt)} <small>kt ${dirTxt} @ ${Math.round(maxWind.p)}hPa</small></div></div>`;
   }
   const box=`<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
     `<div class="forecast-label">Analysis — ${escapeHtml(a.headline)}</div>`+
@@ -4929,6 +5047,8 @@ function renderRadiosonde(opts){
   const tilesGrid=tiles?`<div class="sonde-grid">${tiles}</div>`:'';
   const links=[
     pngUrl?`<a class="sonde-link sonde-link-big" href="${escapeHtml(pngUrl)}" target="_blank" rel="noopener">Open Skew-T in a new tab ↗</a>`:'',
+    canPlot?`<a class="sonde-link sonde-link-big" href="#" onclick="event.preventDefault();printSkewT();">🖨 Print chart</a>`:'',
+    canPlot?`<a class="sonde-link sonde-link-big" href="#" onclick="event.preventDefault();exportSkewTPng();">⬇ Export PNG</a>`:'',
     srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding text data ↗</a>`:''
   ].filter(Boolean).join('');
   content.innerHTML=
@@ -4940,13 +5060,10 @@ function renderRadiosonde(opts){
       title:cycleTitle,
       station:SONDE_NAME,
       coords:`Latitude: ${SONDE_LAT.toFixed(3)} Longitude: ${SONDE_LON.toFixed(3)}`,
+      summary:{headline:a.headline,text:a.text},
       indices:{
-        cape:sondeVal(ind,['CAPE using virtual','Convective Available']),
-        cin:sondeVal(ind,['CINS using virtual','Convective Inhibition']),
-        li:sondeVal(ind,['LIFT computed','Lifted index']),
-        k:sondeVal(ind,['K index']),
-        tt:sondeVal(ind,['Totals totals']),
-        pw:sondeVal(ind,['Precipitable water']),
+        cape:capeV,cin:cinV,li:liV,k:kV,tt:ttV,pw:pwV,
+        trend,
         freezingLevel,
         maxWind
       }
@@ -4976,16 +5093,16 @@ async function loadRadiosonde(force){
   if(__sondeLoading) return;
   __sondeLoading=true;
   try{
-    let previousCycleIso=null;
+    let previousCycleIso=null,previousParsed=null;
     if(!content.dataset.painted){
       try{
         const c=JSON.parse(localStorage.getItem(SONDE_CACHE_KEY));
         if(c&&c.parsed&&renderRadiosonde(c)){content.dataset.painted='1';status.textContent='Showing cached sounding · refreshing…';}
-        if(c&&c.cycleIso)previousCycleIso=c.cycleIso;
+        if(c&&c.cycleIso){previousCycleIso=c.cycleIso;previousParsed=c.parsed;}
       }catch(e){}
     } else if(!force){ __sondeLoading=false; return; } // already loaded this session; manual ↻ or the periodic check forces
     else{
-      try{ const c=JSON.parse(localStorage.getItem(SONDE_CACHE_KEY)); if(c&&c.cycleIso)previousCycleIso=c.cycleIso; }catch(e){}
+      try{ const c=JSON.parse(localStorage.getItem(SONDE_CACHE_KEY)); if(c&&c.cycleIso){previousCycleIso=c.cycleIso;previousParsed=c.parsed;} }catch(e){}
     }
     status.className='knmi-status';
     if(!content.dataset.painted) status.textContent='Loading latest TNCC radiosonde…';
@@ -4994,7 +5111,11 @@ async function loadRadiosonde(force){
     if(textResult&&textResult.parsed){
       const {parsed,url,dt}=textResult;
       const cycleIso=dt?dt.toISOString():null;
-      renderRadiosonde({parsed,srcUrl:url,cycleIso});
+      // Only offer the previous cycle as a trend comparison if it's genuinely
+      // a different, earlier cycle — otherwise re-rendering the same cycle
+      // (e.g. a manual refresh with nothing new yet) would compare a value
+      // against itself and show a meaningless flat arrow on everything.
+      renderRadiosonde({parsed,srcUrl:url,cycleIso,previousParsed:(previousCycleIso&&previousCycleIso!==cycleIso)?previousParsed:null});
       try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({parsed,srcUrl:url,cycleIso,cachedAt:Date.now()}));}catch(e){}
       content.dataset.painted='1';
       status.className='knmi-status ok';
@@ -5043,7 +5164,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeCompassAbbr,sondeTrend,sondeFreezingLevel,sondeMaxWind,exportSkewTPng,printSkewT};
 })();
 </script>
 
