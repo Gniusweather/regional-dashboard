@@ -336,6 +336,16 @@ body::after{
 .sonde-head{font-family:var(--mono);font-size:var(--fs-12);color:rgba(200,225,255,0.8);letter-spacing:0.3px;}
 .sonde-head b{color:var(--accent);}
 .sonde-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;}
+/* Indices sit beside the chart on wide screens, stack above it on narrow
+   ones — the tile grid gets a fixed column so it doesn't reflow width as
+   the chart resizes. */
+.sonde-chart-row{display:flex;gap:12px;align-items:flex-start;}
+.sonde-chart-row .sonde-grid{grid-template-columns:1fr;width:150px;flex:0 0 150px;}
+.sonde-chart-row .skewt-box{flex:1 1 auto;min-width:0;}
+@media(max-width:640px){
+  .sonde-chart-row{flex-direction:column;}
+  .sonde-chart-row .sonde-grid{width:100%;flex:0 0 auto;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));}
+}
 .sonde-link{color:var(--accent);font-family:var(--mono);font-size:var(--fs-11);text-decoration:none;align-self:flex-start;}
 .sonde-link:hover{text-decoration:underline;}
 .sonde-link-big{font-size:var(--fs-13);font-weight:700;border:1px solid var(--accent);border-radius:8px;padding:8px 14px;display:inline-block;margin-right:8px;}
@@ -4257,11 +4267,13 @@ function refreshMapWindows(){
 setInterval(refreshMapWindows, 10*60*1000); // every 10 minutes
 
 /* ════════ RADIOSONDE — latest TNCC (Hato, Curaçao) upper-air sounding indices ════════
-   Source: University of Wyoming upper-air archive (station 78988). Data-only —
-   no diagram; the Maps-tab NHC/Wyoming links cover the visual chart. Fetched
-   automatically on Maps-tab open and hourly thereafter, so it always reflects
-   the latest 00Z/12Z cycle without the user doing anything. */
+   Source: University of Wyoming upper-air archive (station 78988) — text
+   data only, the Skew-T diagram is hand-drawn from it (see drawSkewT).
+   Fetched automatically on Maps-tab open and hourly thereafter, so it
+   always reflects the latest 00Z/12Z cycle without the user doing anything. */
 const SONDE_STNM='78988';
+const SONDE_NAME='HATO AIRPORT, CURACAO, CURACAO, ST MAARTEN AND/ET ARUBA';
+const SONDE_LAT=12.180, SONDE_LON=-68.960;
 const SONDE_CACHE_KEY='sonde-cache-v2';
 let __sondeLoading=false;
 
@@ -4309,15 +4321,18 @@ function sondeMixRInvT(w,P){ // inverse of sondeMixR: T (°C) at which sat. mixi
   return 243.5*L/(17.67-L);
 }
 function skewTGeom(W,H){
-  const pad={l:40,r:38,t:26,b:44};
+  // Title block above the plot scales with width — on a narrow phone canvas
+  // only the first line fits, so don't reserve space for lines we won't draw.
+  const titleLines=W>=520?3:(W>=360?2:1);
+  const pad={l:38,r:34,t:12+titleLines*13,b:22};
   const plotW=Math.max(10,W-pad.l-pad.r), plotH=Math.max(10,H-pad.t-pad.b);
-  const PBOT=1000,PTOP=100,TMIN=-40,TMAX=45;
+  const PBOT=1000,PTOP=100,TMIN=-40,TMAX=60;
   const SKEW=plotW/plotH;
   const yOf=P=>pad.t+plotH*(Math.log(P)-Math.log(PTOP))/(Math.log(PBOT)-Math.log(PTOP));
   const yBottom=yOf(PBOT);
   const xBase=T=>pad.l+plotW*(T-TMIN)/(TMAX-TMIN);
   const xOf=(T,P)=>xBase(T)+SKEW*(yBottom-yOf(P));
-  return {W,H,pad,plotW,plotH,PBOT,PTOP,TMIN,TMAX,SKEW,yOf,yBottom,xBase,xOf};
+  return {W,H,pad,plotW,plotH,PBOT,PTOP,TMIN,TMAX,SKEW,titleLines,yOf,yBottom,xBase,xOf};
 }
 /* Standard meteorological wind barb: shaft points toward the compass
    direction the wind is blowing FROM (canvas rotate() is clockwise with
@@ -4364,32 +4379,38 @@ function drawSkewT(canvas,profile,meta){
   ctx.save();
   ctx.beginPath();ctx.rect(g.pad.l,g.pad.t,g.plotW,g.plotH);ctx.clip();
 
-  ctx.strokeStyle='rgba(0,0,0,0.22)';ctx.lineWidth=1;
-  [1000,900,800,700,600,500,400,300,200,100].forEach(P=>{
+  const PLEVELS=[1000,900,800,700,600,500,400,300,200,100];
+
+  // Pressure gridlines — grey solid, like the reference chart.
+  ctx.strokeStyle='rgba(110,110,110,0.55)';ctx.lineWidth=1;
+  PLEVELS.forEach(P=>{
     const y=g.yOf(P);
     ctx.beginPath();ctx.moveTo(g.pad.l,y);ctx.lineTo(g.pad.l+g.plotW,y);ctx.stroke();
   });
 
-  ctx.strokeStyle='rgba(120,120,120,0.55)';ctx.lineWidth=1;
-  for(let T=-100;T<=60;T+=10){
+  // Isotherms — grey solid, running bottom-left to top-right.
+  ctx.strokeStyle='rgba(130,130,130,0.75)';ctx.lineWidth=1;
+  for(let T=-140;T<=60;T+=10){
     ctx.beginPath();
     ctx.moveTo(g.xOf(T,g.PBOT),g.yOf(g.PBOT));
     ctx.lineTo(g.xOf(T,g.PTOP),g.yOf(g.PTOP));
     ctx.stroke();
   }
 
-  ctx.strokeStyle='rgba(190,120,40,0.55)';ctx.lineWidth=1;
-  for(let theta=-30;theta<=150;theta+=10){
+  // Dry adiabats — red dashed, curving up and to the left.
+  ctx.strokeStyle='rgba(214,96,84,0.85)';ctx.setLineDash([5,4]);ctx.lineWidth=1;
+  for(let theta=-30;theta<=200;theta+=10){
     ctx.beginPath();let first=true;
-    for(let P=g.PBOT;P>=g.PTOP;P-=20){
+    for(let P=g.PBOT;P>=g.PTOP;P-=10){
       const x=g.xOf(sondeTOnDryAdiabat(theta,P),P),y=g.yOf(P);
       if(first){ctx.moveTo(x,y);first=false;}else ctx.lineTo(x,y);
     }
     ctx.stroke();
   }
 
-  ctx.strokeStyle='rgba(40,120,190,0.55)';ctx.lineWidth=1;
-  for(let Tsfc=-20;Tsfc<=40;Tsfc+=5){
+  // Saturated (moist) adiabats — blue dashed.
+  ctx.strokeStyle='rgba(110,130,220,0.85)';ctx.setLineDash([5,4]);ctx.lineWidth=1;
+  for(let Tsfc=-40;Tsfc<=40;Tsfc+=5){
     ctx.beginPath();
     let T=Tsfc,P=g.PBOT;
     ctx.moveTo(g.xOf(T,P),g.yOf(P));
@@ -4405,10 +4426,12 @@ function drawSkewT(canvas,profile,meta){
     ctx.stroke();
   }
 
-  ctx.strokeStyle='rgba(30,140,60,0.6)';ctx.setLineDash([4,3]);ctx.lineWidth=1;
-  [0.4,1,2,4,7,10,16,24,32].forEach(w=>{
+  // Saturation mixing ratio — green dashed, lower troposphere only.
+  const MIXR=[0.2,0.4,1,2,4,7,10,16,24,32];
+  ctx.strokeStyle='rgba(45,150,70,0.9)';ctx.setLineDash([6,4]);ctx.lineWidth=1;
+  MIXR.forEach(w=>{
     ctx.beginPath();let first=true;
-    for(let P=g.PBOT;P>=400;P-=20){
+    for(let P=g.PBOT;P>=400;P-=10){
       const x=g.xOf(sondeMixRInvT(w,P),P),y=g.yOf(P);
       if(first){ctx.moveTo(x,y);first=false;}else ctx.lineTo(x,y);
     }
@@ -4416,50 +4439,86 @@ function drawSkewT(canvas,profile,meta){
   });
   ctx.setLineDash([]);
 
+  // Mixing-ratio value labels, sitting just above the 1000hPa line.
+  ctx.fillStyle='rgba(30,120,55,0.95)';ctx.font='9px sans-serif';
+  ctx.textAlign='center';ctx.textBaseline='bottom';
+  MIXR.forEach(w=>{
+    const x=g.xOf(sondeMixRInvT(w,1000),1000);
+    if(x>g.pad.l+4&&x<g.pad.l+g.plotW-4) ctx.fillText(w.toFixed(1),x,g.yBottom-2);
+  });
+
+  // Dewpoint and temperature traces — both black, as on the reference chart
+  // (dewpoint is always the left-hand one).
   if(prof.length>1){
-    ctx.strokeStyle='#c0392b';ctx.lineWidth=2.4;ctx.lineJoin='round';
-    ctx.beginPath();
-    prof.forEach((r,i)=>{ const x=g.xOf(r.t,r.p),y=g.yOf(r.p); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
-    ctx.stroke();
+    ctx.strokeStyle='#000';ctx.lineWidth=2.2;ctx.lineJoin='round';ctx.lineCap='round';
     const tdPts=prof.filter(r=>r.td!=null);
     if(tdPts.length>1){
-      ctx.strokeStyle='#1a7a3c';ctx.lineWidth=2.4;
       ctx.beginPath();
       tdPts.forEach((r,i)=>{ const x=g.xOf(r.td,r.p),y=g.yOf(r.p); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
       ctx.stroke();
     }
+    ctx.beginPath();
+    prof.forEach((r,i)=>{ const x=g.xOf(r.t,r.p),y=g.yOf(r.p); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+    ctx.stroke();
   }
   ctx.restore();
 
-  ctx.strokeStyle='#000';ctx.lineWidth=1.4;
+  ctx.strokeStyle='#000';ctx.lineWidth=1.2;
   ctx.strokeRect(g.pad.l,g.pad.t,g.plotW,g.plotH);
 
+  // Pressure labels outside the left edge.
   ctx.fillStyle='#000';ctx.font='11px sans-serif';ctx.textAlign='right';ctx.textBaseline='middle';
-  [1000,900,800,700,600,500,400,300,200,100].forEach(P=>{
-    ctx.fillText(String(P),g.pad.l-5,g.yOf(P));
+  PLEVELS.forEach(P=>{ ctx.fillText(String(P),g.pad.l-4,g.yOf(P)); });
+
+  // Geopotential heights, greyed, just inside the left edge — same placement
+  // the reference chart uses. Skipped where the sounding didn't report one,
+  // or where two labels would collide.
+  ctx.fillStyle='rgba(90,90,90,0.95)';ctx.font='9px sans-serif';ctx.textAlign='left';
+  let lastHy=-999;
+  [1000,925,850,700,500,400,300,250,200,150,100].forEach(P=>{
+    const h=sondeInterpEnv(prof,P,'hgt');
+    if(h==null||!isFinite(h))return;
+    const y=g.yOf(P);
+    if(y<g.pad.t+4||y>g.yBottom-2||Math.abs(y-lastHy)<11)return;
+    lastHy=y;
+    ctx.fillText(String(Math.round(h)),g.pad.l+3,y);
   });
 
-  ctx.textAlign='center';ctx.textBaseline='top';
+  // Temperature axis along the bottom.
+  ctx.fillStyle='#000';ctx.font='11px sans-serif';ctx.textAlign='center';ctx.textBaseline='top';
   for(let T=Math.ceil(g.TMIN/10)*10;T<=g.TMAX;T+=10){
-    ctx.fillText(String(T),g.xOf(T,g.PBOT),g.yBottom+4);
+    const x=g.xOf(T,g.PBOT);
+    if(x>=g.pad.l-6&&x<=g.pad.l+g.plotW+6) ctx.fillText(String(T),x,g.yBottom+4);
   }
 
-  const barbX=g.pad.l+g.plotW+18;
+  // Wind barbs down the right-hand margin.
+  const barbX=g.pad.l+g.plotW+16;
   let lastY=-999;
   prof.forEach(r=>{
     if(r.drct==null||r.sknt==null)return;
     const y=g.yOf(r.p);
-    if(y<g.pad.t||y>g.yBottom||Math.abs(y-lastY)<14)return;
+    if(y<g.pad.t||y>g.yBottom||Math.abs(y-lastY)<13)return;
     lastY=y;
-    drawWindBarb(ctx,barbX,y,r.drct,r.sknt,16);
+    drawWindBarb(ctx,barbX,y,r.drct,r.sknt,14);
   });
 
-  ctx.fillStyle='#000';ctx.font='bold 12px sans-serif';ctx.textAlign='left';ctx.textBaseline='alphabetic';
-  ctx.fillText((meta&&meta.title)||'Skew-T log-P',6,14);
-  ctx.font='10px sans-serif';ctx.textAlign='left';ctx.textBaseline='top';
-  const legendY=g.yBottom+18;
-  ctx.fillStyle='#c0392b';ctx.fillText('— Temp',g.pad.l,legendY);
-  ctx.fillStyle='#1a7a3c';ctx.fillText('— Dewpoint',g.pad.l+48,legendY);
+  // Title block, matching the reference chart's wording.
+  const m=meta||{};
+  ctx.fillStyle='#000';ctx.textAlign='left';ctx.textBaseline='alphabetic';
+  ctx.font='bold 13px sans-serif';
+  ctx.fillText(m.title||'Skew-T log-P',g.pad.l,15);
+  if(g.titleLines>=2){
+    ctx.font='10px sans-serif';
+    ctx.fillText(m.station||'',g.pad.l,28);
+  }
+  if(g.titleLines>=3){
+    ctx.font='10px sans-serif';
+    ctx.fillText(m.coords||'',g.pad.l,41);
+  }
+  if(cssW>=380){
+    ctx.font='9px sans-serif';ctx.fillStyle='rgba(60,60,60,0.9)';ctx.textAlign='right';
+    ctx.fillText('University of Wyoming sounding data',g.pad.l+g.plotW,g.H-4);
+  }
 
   return true;
 }
@@ -4799,15 +4858,22 @@ function renderRadiosonde(opts){
   const pngUrl=cycleDt?sondeSkewtPngUrl(cycleDt):null;
   const canPlot=(parsed.profile||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).length>=2;
   const skewtBox=canPlot?`<div class="skewt-box"><canvas></canvas></div>`:'';
+  const tilesGrid=tiles?`<div class="sonde-grid">${tiles}</div>`:'';
+  const chartRow=(tilesGrid||skewtBox)?`<div class="sonde-chart-row">${tilesGrid}${skewtBox}</div>`:'';
   const links=[
     pngUrl?`<a class="sonde-link sonde-link-big" href="${escapeHtml(pngUrl)}" target="_blank" rel="noopener">Open Skew-T in a new tab ↗</a>`:'',
     srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding text data ↗</a>`:''
   ].filter(Boolean).join('');
   content.innerHTML=
     `<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`+
-    box+(tiles?`<div class="sonde-grid">${tiles}</div>`:'')+skewtBox+links;
+    box+chartRow+links;
   if(canPlot){
-    __skewtLast={profile:parsed.profile,meta:{title:`78988 TNCC${parsed.obsTime?' · '+parsed.obsTime:''}`}};
+    const cycleTitle=cycleDt?`Station ${SONDE_STNM} at ${pad(cycleDt.getUTCHours())} UTC ${pad(cycleDt.getUTCDate())} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][cycleDt.getUTCMonth()]} ${cycleDt.getUTCFullYear()}`:`Station ${SONDE_STNM}`;
+    __skewtLast={profile:parsed.profile,meta:{
+      title:cycleTitle,
+      station:SONDE_NAME,
+      coords:`Latitude: ${SONDE_LAT.toFixed(3)} Longitude: ${SONDE_LON.toFixed(3)}`
+    }};
     redrawSkewT();
   }
   return true;
