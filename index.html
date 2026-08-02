@@ -4502,6 +4502,29 @@ function drawSkewT(canvas,profile,meta){
     drawWindBarb(ctx,barbX,y,r.drct,r.sknt,14);
   });
 
+  // Stats box — key indices drawn directly on the chart (top-left corner,
+  // over an opaque backing so the gridlines/adiabats underneath don't make
+  // it unreadable), in addition to the colored tiles alongside the chart.
+  const idx=(meta&&meta.indices)||{};
+  const statRows=[];
+  if(idx.cape!=null)statRows.push(['CAPE',Math.round(idx.cape)+' J/kg']);
+  if(idx.cin!=null)statRows.push(['CIN',Math.round(idx.cin)+' J/kg']);
+  if(idx.li!=null)statRows.push(['LI',idx.li.toFixed(1)]);
+  if(idx.k!=null)statRows.push(['K',idx.k.toFixed(0)]);
+  if(idx.tt!=null)statRows.push(['TT',idx.tt.toFixed(0)]);
+  if(idx.pw!=null)statRows.push(['PW',idx.pw.toFixed(0)+' mm']);
+  if(statRows.length){
+    const bx=g.pad.l+5,by=g.pad.t+5,lineH=12,boxW=84,boxH=statRows.length*lineH+7;
+    ctx.fillStyle='rgba(255,255,255,0.88)';ctx.fillRect(bx,by,boxW,boxH);
+    ctx.strokeStyle='rgba(0,0,0,0.45)';ctx.lineWidth=1;ctx.strokeRect(bx,by,boxW,boxH);
+    ctx.font='10px sans-serif';ctx.textBaseline='top';
+    statRows.forEach((r,i)=>{
+      const ry=by+4+i*lineH;
+      ctx.textAlign='left';ctx.fillStyle='#444';ctx.fillText(r[0],bx+5,ry);
+      ctx.textAlign='right';ctx.fillStyle='#000';ctx.fillText(r[1],bx+boxW-5,ry);
+    });
+  }
+
   // Title block, matching the reference chart's wording.
   const m=meta||{};
   ctx.fillStyle='#000';ctx.textAlign='left';ctx.textBaseline='alphabetic';
@@ -4872,7 +4895,15 @@ function renderRadiosonde(opts){
     __skewtLast={profile:parsed.profile,meta:{
       title:cycleTitle,
       station:SONDE_NAME,
-      coords:`Latitude: ${SONDE_LAT.toFixed(3)} Longitude: ${SONDE_LON.toFixed(3)}`
+      coords:`Latitude: ${SONDE_LAT.toFixed(3)} Longitude: ${SONDE_LON.toFixed(3)}`,
+      indices:{
+        cape:sondeVal(ind,['CAPE using virtual','Convective Available']),
+        cin:sondeVal(ind,['CINS using virtual','Convective Inhibition']),
+        li:sondeVal(ind,['LIFT computed','Lifted index']),
+        k:sondeVal(ind,['K index']),
+        tt:sondeVal(ind,['Totals totals']),
+        pw:sondeVal(ind,['Precipitable water'])
+      }
     }};
     redrawSkewT();
   }
