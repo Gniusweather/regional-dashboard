@@ -4332,19 +4332,6 @@ function sondeFreezingLevel(profile){
   }
   return null;
 }
-function sondeMaxWind(profile){
-  let best=null;
-  (profile||[]).forEach(r=>{
-    if(r.sknt==null||!isFinite(r.sknt))return;
-    if(!best||r.sknt>best.sknt)best=r;
-  });
-  return best;
-}
-function sondeCompassAbbr(deg){
-  if(deg==null||!isFinite(deg))return '';
-  const dirs=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
-  return dirs[Math.round(((deg%360)+360)%360/22.5)%16];
-}
 /* Trend arrow comparing this cycle's value against the previous one — null
    if either side is missing (nothing to compare) or the change is inside
    the noise threshold for that index (avoids a jittery arrow on a value
@@ -4354,28 +4341,6 @@ function sondeTrend(cur,prev,threshold){
   const d=cur-prev;
   if(Math.abs(d)<threshold)return '→';
   return d>0?'↑':'↓';
-}
-/* Cloud layer bases straight from the sounding: any run of levels where
-   the dewpoint depression (T-Td) stays at/under 3°C — near-saturated air,
-   i.e. actual observed moisture rather than the single theoretical LCL
-   value already shown elsewhere. Returns the base (bottom) of each such
-   layer, surface-up, capped at 3 so a noisy profile doesn't list a dozen
-   thin layers. */
-function sondeCloudLayers(profile){
-  // Capped at 300hPa: above that, dewpoint sensors get unreliable and a
-  // small T-Td spread there is more likely instrument noise than an
-  // actual cloud layer worth flagging as a "base".
-  const prof=(profile||[]).filter(r=>isFinite(r.p)&&r.p>=300&&isFinite(r.t)&&r.td!=null).sort((a,b)=>b.p-a.p);
-  const layers=[];
-  let inLayer=false;
-  for(const r of prof){
-    const dep=r.t-r.td;
-    if(dep<=3){
-      if(!inLayer){ layers.push({p:r.p,hgt:r.hgt}); inLayer=true; }
-    } else inLayer=false;
-    if(layers.length>=3)break;
-  }
-  return layers;
 }
 function skewTGeom(W,H){
   // Title block above the plot scales with width — on a narrow phone canvas
@@ -4518,23 +4483,6 @@ function drawSkewT(canvas,profile,meta){
     if(x>g.pad.l+4&&x<g.pad.l+g.plotW-4) ctx.fillText(w.toFixed(1),x,g.yBottom-2);
   });
 
-  // Cloud base markers — a light band across the plot at each detected
-  // near-saturated layer's base, with a cloud glyph at the left edge tying
-  // it to that pressure level, drawn behind the trace so the trace stays
-  // the most prominent line on the chart.
-  const cloudLayers=(meta&&meta.indices&&meta.indices.cloudLayers)||sondeCloudLayers(profile);
-  cloudLayers.forEach(cl=>{
-    const y=g.yOf(cl.p);
-    ctx.strokeStyle='rgba(80,150,220,0.5)';ctx.lineWidth=1.5;ctx.setLineDash([2,3]);
-    ctx.beginPath();ctx.moveTo(g.pad.l,y);ctx.lineTo(g.pad.l+g.plotW,y);ctx.stroke();
-    ctx.setLineDash([]);
-    // Centered on the plot, clear of the height labels (left edge) and
-    // wind barbs (right edge).
-    ctx.font='11px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillStyle='rgba(60,120,190,0.9)';
-    ctx.fillText('☁',g.pad.l+g.plotW/2,y);
-  });
-
   // Dewpoint and temperature traces — both black, as on the reference chart
   // (dewpoint is always the left-hand one).
   if(prof.length>1){
@@ -4627,14 +4575,6 @@ function drawSkewT(canvas,profile,meta){
     if(idx.freezingLevel){
       const fz=idx.freezingLevel, ft=fz.hgt!=null?fz.hgt*3.28084:null;
       rows.push(['FRZ LVL',ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'kft':Math.round(ft)+'ft'):Math.round(fz.p)+'hPa']);
-    }
-    if(idx.maxWind){
-      const mw=idx.maxWind, dirTxt=mw.drct!=null?sondeCompassAbbr(mw.drct):'';
-      rows.push(['MAX WD',`${Math.round(mw.sknt)}kt ${dirTxt}@${Math.round(mw.p)}`]);
-    }
-    if(idx.cloudLayers&&idx.cloudLayers.length){
-      const cb=idx.cloudLayers[0], cft=cb.hgt!=null?cb.hgt*3.28084:null;
-      rows.push(['CLD BASE',cft!=null?(cft>=1000?(cft/1000).toFixed(1)+'kft':Math.round(cft)+'ft'):Math.round(cb.p)+'hPa']);
     }
     if(rows.length){
       const px=6,pw=g.indicesW-10;
@@ -5069,8 +5009,7 @@ function renderRadiosonde(opts){
   const a=analyzeSounding(ind);
   const cycleDt=cycleIso?new Date(cycleIso):null;
   const canPlot=(parsed.profile||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).length>=2;
-  const freezingLevel=sondeFreezingLevel(parsed.profile), maxWind=sondeMaxWind(parsed.profile);
-  const cloudLayers=sondeCloudLayers(parsed.profile);
+  const freezingLevel=sondeFreezingLevel(parsed.profile);
   const capeV=sondeVal(ind,['CAPE using virtual','Convective Available']);
   const cinV=sondeVal(ind,['CINS using virtual','Convective Inhibition']);
   const liV=sondeVal(ind,['LIFT computed','Lifted index']);
@@ -5093,18 +5032,6 @@ function renderRadiosonde(opts){
     const val=ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'k':Math.round(ft)):Math.round(freezingLevel.p);
     const unit=ft!=null?'ft':'hPa';
     tiles+=`<div class="knmi-tile"><div class="knmi-tile-lbl">Freezing Level</div><div class="knmi-tile-val">${val} <small>${unit}</small></div></div>`;
-  }
-  if(maxWind){
-    const dirTxt=maxWind.drct!=null?`${sondeCompassAbbr(maxWind.drct)} ${Math.round(maxWind.drct)}°`:'';
-    tiles+=`<div class="knmi-tile"><div class="knmi-tile-lbl">Max Wind</div><div class="knmi-tile-val">${Math.round(maxWind.sknt)} <small>kt ${dirTxt} @ ${Math.round(maxWind.p)}hPa</small></div></div>`;
-  }
-  if(cloudLayers.length){
-    const base=cloudLayers[0];
-    const ft=base.hgt!=null?base.hgt*3.28084:null;
-    const val=ft!=null?Math.round(ft):Math.round(base.p);
-    const unit=ft!=null?'ft':'hPa';
-    const more=cloudLayers.length>1?`, +${cloudLayers.length-1} more layer${cloudLayers.length>2?'s':''}`:'';
-    tiles+=`<div class="knmi-tile"><div class="knmi-tile-lbl">Cloud Base</div><div class="knmi-tile-val">${val} <small>${unit}${more}</small></div></div>`;
   }
   const box=`<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
     `<div class="forecast-label">Analysis — ${escapeHtml(a.headline)}</div>`+
@@ -5132,9 +5059,7 @@ function renderRadiosonde(opts){
       indices:{
         cape:capeV,cin:cinV,li:liV,k:kV,tt:ttV,pw:pwV,
         trend,
-        freezingLevel,
-        maxWind,
-        cloudLayers
+        freezingLevel
       }
     }};
     redrawSkewT();
@@ -5233,7 +5158,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeCompassAbbr,sondeTrend,sondeFreezingLevel,sondeMaxWind,sondeCloudLayers,exportSkewTPng,printSkewT};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,exportSkewTPng,printSkewT};
 })();
 </script>
 
