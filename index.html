@@ -4471,9 +4471,12 @@ function drawSkewT(canvas,profile,meta){
   PLEVELS.forEach(P=>{ ctx.fillText(String(P),g.pad.l-4,g.yOf(P)); });
 
   // Geopotential heights, greyed, just inside the left edge — same placement
-  // the reference chart uses. Skipped where the sounding didn't report one,
-  // or where two labels would collide.
-  ctx.fillStyle='rgba(90,90,90,0.95)';ctx.font='9px sans-serif';ctx.textAlign='left';
+  // the reference chart uses, with feet added alongside the meters (Wyoming's
+  // own chart only gives meters, but altitude in feet matters more for the
+  // aviation-facing rest of this app). Skipped where the sounding didn't
+  // report a height, or where two labels would collide. Feet are compacted
+  // to "12.3k" above 1000ft so the pair still fits the narrow margin.
+  ctx.fillStyle='rgba(90,90,90,0.95)';ctx.font='8.5px sans-serif';ctx.textAlign='left';
   let lastHy=-999;
   [1000,925,850,700,500,400,300,250,200,150,100].forEach(P=>{
     const h=sondeInterpEnv(prof,P,'hgt');
@@ -4481,7 +4484,9 @@ function drawSkewT(canvas,profile,meta){
     const y=g.yOf(P);
     if(y<g.pad.t+4||y>g.yBottom-2||Math.abs(y-lastHy)<11)return;
     lastHy=y;
-    ctx.fillText(String(Math.round(h)),g.pad.l+3,y);
+    const ft=h*3.28084;
+    const ftStr=ft>=1000?(ft/1000).toFixed(1)+'k':String(Math.round(ft));
+    ctx.fillText(`${Math.round(h)}m/${ftStr}ft`,g.pad.l+3,y);
   });
 
   // Temperature axis along the bottom.
