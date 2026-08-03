@@ -2797,7 +2797,14 @@ async function fetchMetarFor(icao){
   }catch(err){console.error('METAR fetch error for',icao,err);return false;}
 }
 
+// Guards against overlapping fetch batches — the 30s interval, the manual
+// refresh button, and the visibilitychange handler can all call this, and
+// a slow/stalled connection could otherwise leave a stale batch still in
+// flight when the next one starts.
+let __metarRefreshing=false;
 async function refreshAllMetars(){
+  if(__metarRefreshing)return false;
+  __metarRefreshing=true;
   try{
     const results=await Promise.all(STATIONS.map(s=>fetchMetarFor(s)));
     const local=formatLocalDateTimeParts();
@@ -2805,6 +2812,7 @@ async function refreshAllMetars(){
     checkSpeci();
     return results.some(Boolean);
   }catch(e){console.error('refreshAllMetars error',e);return false;}
+  finally{__metarRefreshing=false;}
 }
 
 /* ── SPECI WATCH (TNCA / TNCB / TNCC only) ──
@@ -4761,7 +4769,14 @@ function redrawSkewT(){
   const canvas=document.querySelector('.skewt-box canvas');
   if(canvas&&__skewtLast) drawSkewT(canvas,__skewtLast.profile,__skewtLast.meta);
 }
-window.addEventListener('resize',redrawSkewT);
+// Debounced: an active window-drag can fire 'resize' dozens of times a
+// second, and each redraw walks the full isotherm/adiabat/parcel grid —
+// only the last one in a burst needs to actually run.
+let __skewtResizeT=null;
+window.addEventListener('resize',()=>{
+  clearTimeout(__skewtResizeT);
+  __skewtResizeT=setTimeout(redrawSkewT,120);
+});
 /* Redraw once at a large, fixed size so the exported/printed image is
    crisp regardless of how small the on-screen box currently is, then
    restore the on-screen canvas back to its normal size afterward. */
