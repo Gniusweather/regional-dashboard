@@ -377,14 +377,14 @@ body::after{
   position:relative;border-radius:12px;overflow:hidden;
   border:1px solid var(--border-bright);background:#fff;
   box-shadow:var(--shadow);
-  width:100%;height:480px;display:block;
+  width:100%;height:600px;display:block;
 }
 .skewt-box canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
-/* A fixed 480px height next to a shrinking phone width made the chart
-   awkwardly tall/narrow (skewTGeom's own indices-column and margin
-   breakpoints already assume a squarer aspect). Shorten it to match. */
-@media(max-width:600px){.skewt-box{height:400px;}}
-@media(max-width:400px){.skewt-box{height:340px;}}
+/* A fixed height next to a shrinking phone width made the chart awkwardly
+   tall/narrow (skewTGeom's own indices-column and margin breakpoints
+   already assume a squarer aspect). Shorten it to match. */
+@media(max-width:600px){.skewt-box{height:480px;}}
+@media(max-width:400px){.skewt-box{height:400px;}}
 /* Labels/names hidden — show only the map image. */
 .windy-lbl{display:none;}
 @media(max-width:960px){.windy-widget{--windy-h:260px;grid-template-columns:1fr 1fr;}}
