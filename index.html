@@ -4669,7 +4669,8 @@ function drawSkewT(canvas,profile,meta){
     // while giving each barb enough room to stay readable.
     if(y<g.pad.t||y>g.yBottom||Math.abs(y-lastY)<10)return;
     lastY=y;
-    drawWindBarb(ctx,barbX,y,r.drct,r.sknt,26);
+    // Parsed speed is m/s; wind barb symbols are always read in knots.
+    drawWindBarb(ctx,barbX,y,r.drct,r.sknt*1.94384,26);
   });
 
   // Indices panel — left of the pressure/height axis, on the canvas itself
