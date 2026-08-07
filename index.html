@@ -4639,6 +4639,37 @@ function drawSkewT(canvas,profile,meta){
     ctx.beginPath();ctx.arc(lx,ly,3,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();
   }
 
+  // Cloud layers — a light band across the full plot width wherever T and
+  // Td run close together (near-saturated air), with a small glyph + height
+  // label centered in the band, clear of the height labels (left edge) and
+  // wind barbs (right edge). Drawn behind the T/Td traces alongside the
+  // parcel shading, in a cool gray-blue distinct from the warm/cool
+  // CAPE/CIN tint.
+  sondeCloudLayers(profile).forEach(cl=>{
+    const yBase=g.yOf(cl.baseP), yTop=g.yOf(cl.topP);
+    const h=Math.max(1.5,yBase-yTop);
+    ctx.fillStyle='rgba(130,150,175,0.24)';
+    ctx.fillRect(g.pad.l,yTop,g.plotW,h);
+    const midY=(yBase+yTop)/2;
+    const cx=g.pad.l+g.plotW/2;
+    let label;
+    if(cl.baseHgt!=null&&cl.topHgt!=null){
+      const baseFt=cl.baseHgt*3.28084, topFt=cl.topHgt*3.28084;
+      // Both ends in the same unit (thousands if EITHER crosses 1000ft) so a
+      // range never mixes bare feet with 'k' shorthand, e.g. "66-5.1kft".
+      const useK=Math.max(baseFt,topFt)>=1000;
+      const fmt=v=>useK?(v/1000).toFixed(1)+'k':String(Math.round(v));
+      const bs=fmt(baseFt),ts=fmt(topFt);
+      label='☁ '+(bs===ts?bs+'ft':bs+'–'+ts+'ft');
+    } else label='☁ '+Math.round(cl.baseP)+'hPa';
+    ctx.font='10.5px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    const tw=ctx.measureText(label).width;
+    ctx.fillStyle='rgba(255,255,255,0.82)';
+    ctx.fillRect(cx-tw/2-4,midY-7,tw+8,14);
+    ctx.fillStyle='rgba(55,85,115,0.95)';
+    ctx.fillText(label,cx,midY+0.5);
+  });
+
   // Dewpoint and temperature traces — both black, as on the reference chart
   // (dewpoint is always the left-hand one).
   if(prof.length>1){
@@ -4952,6 +4983,26 @@ function sondeInterpEnv(prof,targetP,key){
     }
   }
   return null;
+}
+/* Cloud layers — contiguous runs where the dewpoint depression (T-Td)
+   stays at or under a threshold, i.e. near-saturated air (T and Td running
+   close together on the chart). Capped at 300hPa (above that, dewpoint
+   sensors get unreliable and a small spread there is more likely
+   instrument noise than an actual cloud layer) and at 4 layers so a noisy
+   profile doesn't turn into a wall of shading. */
+function sondeCloudLayers(profile){
+  const DEP_THRESH=3; // °C
+  const prof=(profile||[]).filter(r=>isFinite(r.p)&&r.p>=300&&isFinite(r.t)&&r.td!=null).sort((a,b)=>b.p-a.p); // surface-up
+  const layers=[];
+  let cur=null;
+  for(const r of prof){
+    if(r.t-r.td<=DEP_THRESH){
+      if(!cur) cur={baseP:r.p,baseHgt:r.hgt,topP:r.p,topHgt:r.hgt};
+      else { cur.topP=r.p; cur.topHgt=r.hgt; }
+    } else if(cur){ layers.push(cur); cur=null; if(layers.length>=4)break; }
+  }
+  if(cur&&layers.length<4) layers.push(cur);
+  return layers;
 }
 /* Surface parcel ascent — lifted dry-adiabatically to the LCL (constant
    mixing ratio) then moist-adiabatically above it. Shared by the CAPE/CIN
@@ -5416,7 +5467,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeSynopHistoryUpdate,makeSynopCard,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeCloudLayers,sondeSynopHistoryUpdate,makeSynopCard,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT};
 })();
 </script>
 
