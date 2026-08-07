@@ -336,6 +336,12 @@ body::after{
 .sonde-head{font-family:var(--mono);font-size:var(--fs-12);color:rgba(200,225,255,0.8);letter-spacing:0.3px;}
 .sonde-head b{color:var(--accent);}
 .sonde-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;}
+.sonde-synop-panel:empty{display:none;}
+.sonde-synop-hd{
+  font-family:var(--cond);font-size:var(--fs-13);font-weight:700;letter-spacing:1px;
+  text-transform:uppercase;color:var(--muted);margin-bottom:8px;
+}
+.sonde-synop-hd.sonde-synop-none{font-family:var(--mono);text-transform:none;letter-spacing:0.3px;font-weight:400;opacity:0.75;}
 .sonde-link{color:var(--accent);font-family:var(--mono);font-size:var(--fs-11);text-decoration:none;align-self:flex-start;}
 .sonde-link:hover{text-decoration:underline;}
 .sonde-link-big{font-size:var(--fs-13);font-weight:700;border:1px solid var(--accent);border-radius:8px;padding:8px 14px;display:inline-block;margin-right:8px;}
@@ -377,14 +383,14 @@ body::after{
   position:relative;border-radius:12px;overflow:hidden;
   border:1px solid var(--border-bright);background:#fff;
   box-shadow:var(--shadow);
-  width:100%;height:600px;display:block;
+  width:100%;height:760px;display:block;
 }
 .skewt-box canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
 /* A fixed height next to a shrinking phone width made the chart awkwardly
    tall/narrow (skewTGeom's own indices-column and margin breakpoints
    already assume a squarer aspect). Shorten it to match. */
-@media(max-width:600px){.skewt-box{height:480px;}}
-@media(max-width:400px){.skewt-box{height:400px;}}
+@media(max-width:600px){.skewt-box{height:560px;}}
+@media(max-width:400px){.skewt-box{height:460px;}}
 /* Labels/names hidden — show only the map image. */
 .windy-lbl{display:none;}
 @media(max-width:960px){.windy-widget{--windy-h:260px;grid-template-columns:1fr 1fr;}}
@@ -4924,7 +4930,21 @@ function sondeInterpEnv(prof,targetP,key){
 function sondeSurfaceParcel(profileRaw){
   const prof=(profileRaw||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>b.p-a.p);
   if(prof.length<2) return null;
-  const P0=prof[0].p, T0=prof[0].t, Td0=(prof[0].td!=null?prof[0].td:prof[0].t);
+  const P0=prof[0].p, T0=prof[0].t;
+  // A missing surface dewpoint used to fall back to "assume saturated"
+  // (Td0=T0), which silently manufactures an unrealistically buoyant
+  // parcel — CAPE inflated well past anything physically plausible, with
+  // CIN pinned at exactly 0 as the telltale symptom (a fully-saturated
+  // parcel has essentially no dry-adiabatic ascent phase to be capped
+  // during). Use the nearest level that does report a dewpoint instead,
+  // and give up on a surface-based parcel entirely if the whole profile
+  // is dry-bulb only — a fabricated guess is worse than no answer.
+  let Td0=prof[0].td;
+  if(Td0==null){
+    const withTd=prof.filter(r=>r.td!=null);
+    if(!withTd.length) return null;
+    Td0=withTd.reduce((best,r)=>Math.abs(r.p-P0)<Math.abs(best.p-P0)?r:best).td;
+  }
   const Ptop=prof[prof.length-1].p;
   const w0=sondeMixR(Td0,P0), theta0=sondeTheta(T0,P0);
   let Plcl=P0,Tlcl=T0;
@@ -5146,6 +5166,62 @@ async function sondeFindParsedText(){
   }
   return null;
 }
+/* Surface SYNOP for the same station (78988 = TNCC Hato) as the sounding
+   above, filtered down to just the groups that matter next to a Skew-T:
+   wind, cloud, present weather (ww), visibility, and precipitation. Reuses
+   the same decoder as the SYNOP tab — 78988 is TNCC's own WMO synoptic
+   station, so it's in the same bulletins already fetched there. */
+function sondeSynopFieldsHtml(P){
+  let windStr='—';
+  if(P.wind_dir==='Calm') windStr='Calm';
+  else if(P.wind_speed_kn!=null) windStr=`${P.wind_dir&&P.wind_dir!=='Variable'?P.wind_dir+' ':P.wind_dir==='Variable'?'Variable ':''}${P.wind_speed_kn}kt`;
+  else if(P.wind_dir) windStr=P.wind_dir;
+
+  let cloudStr=P.cloud_cover?P.cloud_cover+(P.cloud_oktas!=null?` (${P.cloud_oktas}/8)`:''):'—';
+  if(P.cloud_base_h) cloudStr+=(cloudStr==='—'?'':' · ')+`base ${P.cloud_base_h}`;
+  if(P.CL&&P.CL!=='—') cloudStr+=`, CL ${P.CL}`;
+  if(P.CM&&P.CM!=='—') cloudStr+=`, CM ${P.CM}`;
+
+  let rainStr='—';
+  if(P.precip_mm!=null) rainStr=`${P.precip_mm} mm`+(P.precip_period&&P.precip_period!=='—'?` / ${P.precip_period}`:'');
+
+  const rows=[['Wind',windStr,false],['Cloud',cloudStr,true],['Weather (ww)',P.wx_desc||'—',false],['Visibility',P.vis||'—',false],['Rain',rainStr,false]];
+  return rows.map(([lbl,val,wide])=>
+    `<div class="knmi-tile"${wide?' style="grid-column:span 2"':''}><div class="knmi-tile-lbl">${escapeHtml(lbl)}</div><div class="knmi-tile-val" style="font-size:var(--fs-16)">${escapeHtml(String(val))}</div></div>`
+  ).join('');
+}
+/* NOAA's raw feed only ever holds the latest bulletin, not an archive —
+   so this only has something to show when the latest SYNOP happens to be
+   for the same hour as the sounding's cycle (both 00Z/12Z are also main
+   synoptic hours, so this lines up whenever the page is checked reasonably
+   soon after that cycle publishes). Otherwise says so plainly rather than
+   silently showing a different hour's conditions unlabeled. */
+async function loadSondeSynop(cycleDt){
+  const panel=byId('sonde-synop-panel');
+  if(!panel)return;
+  if(!cycleDt){panel.innerHTML='';return;}
+  const targetHour=cycleDt.getUTCHours();
+  const URLS=[
+    'https://tgftp.nws.noaa.gov/data/raw/si/sica20.tncc..txt',
+    'https://tgftp.nws.noaa.gov/data/raw/sm/smca01.tncc..txt'
+  ];
+  for(const url of URLS){
+    try{
+      const out=await fetchWithRetries(url,2);
+      if(!out||!out.ok||!out.text)continue;
+      const decoded=decodeSynopText(out.text);
+      const rep=(decoded.reports||[]).find(r=>r.stn==='78988');
+      if(!rep||!decoded.bulletinTime)continue;
+      const hm=decoded.bulletinTime.match(/(\d{2}):(\d{2})Z/);
+      const hh=hm?parseInt(hm[1],10):null;
+      if(hh!==targetHour)continue;
+      panel.innerHTML=`<div class="sonde-synop-hd">🌦 SYNOP 78988 · ${escapeHtml(decoded.bulletinTime)}</div>`+
+        `<div class="sonde-grid">${sondeSynopFieldsHtml(rep.P)}</div>`;
+      return;
+    }catch(e){}
+  }
+  panel.innerHTML=`<div class="sonde-synop-hd sonde-synop-none">No same-hour (${pad(targetHour)}:00Z) SYNOP available for 78988 right now.</div>`;
+}
 function renderRadiosonde(opts){
   const content=byId('sondeContent');
   if(!content) return false;
@@ -5196,7 +5272,9 @@ function renderRadiosonde(opts){
   ].filter(Boolean).join('');
   content.innerHTML=
     `<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`+
-    box+tilesGrid+skewtBox+links;
+    box+tilesGrid+
+    `<div id="sonde-synop-panel" class="sonde-synop-panel"><div class="sonde-synop-hd sonde-synop-none">Loading same-hour SYNOP…</div></div>`+
+    skewtBox+links;
   if(canPlot){
     const cycleTitle=cycleDt?`Station ${SONDE_STNM} at ${pad(cycleDt.getUTCHours())} UTC ${pad(cycleDt.getUTCDate())} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][cycleDt.getUTCMonth()]} ${cycleDt.getUTCFullYear()}`:`Station ${SONDE_STNM}`;
     __skewtLast={profile:parsed.profile,meta:{
@@ -5258,6 +5336,7 @@ async function loadRadiosonde(force){
       // (e.g. a manual refresh with nothing new yet) would compare a value
       // against itself and show a meaningless flat arrow on everything.
       renderRadiosonde({parsed,srcUrl:url,cycleIso,previousParsed:(previousCycleIso&&previousCycleIso!==cycleIso)?previousParsed:null});
+      loadSondeSynop(dt); // fire-and-forget — doesn't block the sounding render
       try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({parsed,srcUrl:url,cycleIso,cachedAt:Date.now()}));}catch(e){}
       content.dataset.painted='1';
       status.className='knmi-status ok';
@@ -5306,7 +5385,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,exportSkewTPng,printSkewT};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeSynopFieldsHtml,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT};
 })();
 </script>
 
