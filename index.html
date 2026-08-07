@@ -5216,9 +5216,16 @@ async function loadSondeSynop(cycleDt){
     'https://tgftp.nws.noaa.gov/data/raw/si/sica20.tncc..txt',
     'https://tgftp.nws.noaa.gov/data/raw/sm/smca01.tncc..txt'
   ];
-  for(const url of URLS){
+  // Both URLs in parallel, one attempt each — fetchWithRetries's own retry
+  // already races 5 sources internally per attempt (~12s worst case), so
+  // trying 2 URLs *sequentially* with 2 retries apiece (the original code)
+  // could take up to ~50s before this panel showed anything at all. Racing
+  // them together caps the worst case at ~12s.
+  const results=await Promise.allSettled(URLS.map(u=>fetchWithRetries(u,1)));
+  for(const res of results){
+    if(res.status!=='fulfilled')continue;
     try{
-      const out=await fetchWithRetries(url,2);
+      const out=res.value;
       if(!out||!out.ok||!out.text)continue;
       const decoded=decodeSynopText(out.text);
       const rep=(decoded.reports||[]).find(r=>r.stn==='78988');
