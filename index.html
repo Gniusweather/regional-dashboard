@@ -342,6 +342,7 @@ body::after{
   text-transform:uppercase;color:var(--muted);margin-bottom:8px;
 }
 .sonde-synop-hd.sonde-synop-none{font-family:var(--mono);text-transform:none;letter-spacing:0.3px;font-weight:400;opacity:0.75;}
+.sonde-synop-panel .synop-card{max-width:520px;}
 .sonde-link{color:var(--accent);font-family:var(--mono);font-size:var(--fs-11);text-decoration:none;align-self:flex-start;}
 .sonde-link:hover{text-decoration:underline;}
 .sonde-link-big{font-size:var(--fs-13);font-weight:700;border:1px solid var(--accent);border-radius:8px;padding:8px 14px;display:inline-block;margin-right:8px;}
@@ -3425,8 +3426,18 @@ function synopMetricTile(lbl,val,opts){
   return `<div class="synop-m"${span}><div class="synop-m-lbl">${lbl}</div><div class="synop-m-val"${valCls}>${val}</div></div>`;
 }
 
-function makeSynopCard(rep,bulletinTime){
+/* Trend arrow markup matching the sounding indices' convention — neutral
+   up/down colors (rising isn't inherently good or bad: e.g. rising temp vs.
+   rising pressure mean different things), only shown when a trend value is
+   passed in (existing SYNOP-tab callers that don't pass trend are
+   unaffected). */
+function synopTrendSpan(t){
+  if(!t)return '';
+  return `<span class="knmi-trend knmi-trend-${t==='↑'?'up':t==='↓'?'down':'flat'}" title="vs. previous report">${t}</span>`;
+}
+function makeSynopCard(rep,bulletinTime,trend){
   const P=rep.P;
+  const tr=trend||{};
   const spdKt=(P.wind_speed_kn!=null)?P.wind_speed_kn:null;
   const isCalm=(P.wind_dir==='Calm')||(spdKt===0);
   const dirDeg=(P.wind_dir_deg!=null&&P.wind_dir_deg>0)?P.wind_dir_deg:null;
@@ -3439,6 +3450,7 @@ function makeSynopCard(rep,bulletinTime){
   else if(P.wind_dir==='Variable') windLabel=spdKt!=null?`VRB / ${spdKt}kt`:'VRB';
   else if(P.wind_dir!=null) windLabel=spdKt!=null?`${P.wind_dir} / ${spdKt}kt`:P.wind_dir;
   else if(spdKt!=null) windLabel=`${spdKt}kt`;
+  if(spdKt!=null) windLabel+=synopTrendSpan(tr.wind_speed_kn);
 
   // Rose
   const roseSvg=(dirDeg!=null&&!isCalm&&spdKt!=null)
@@ -3451,11 +3463,11 @@ function makeSynopCard(rep,bulletinTime){
   let coverStr='—';
   if(P.cloud_cover){coverStr=P.cloud_cover;if(P.cloud_oktas!=null)coverStr+=` ${P.cloud_oktas}/8`;}
   const tCol=(P.temp_c!=null)?tempColorCode(P.temp_c):'#d0e8ff';
-  const tempStr=(P.temp_c!=null)?`${P.temp_c.toFixed(1)}°C`:'—';
-  const dewStr=(P.dew_c!=null)?`${P.dew_c.toFixed(1)}°C`:'—';
-  const rhStr=(P.rh!=null)?`${P.rh}%`:'—';
-  const slpStr=(P.slp!=null)?`${P.slp.toFixed(1)} hPa`:'—';
-  const presStr=(P.stn_pres!=null)?`${P.stn_pres.toFixed(1)} hPa`:'—';
+  const tempStr=(P.temp_c!=null)?`${P.temp_c.toFixed(1)}°C${synopTrendSpan(tr.temp_c)}`:'—';
+  const dewStr=(P.dew_c!=null)?`${P.dew_c.toFixed(1)}°C${synopTrendSpan(tr.dew_c)}`:'—';
+  const rhStr=(P.rh!=null)?`${P.rh}%${synopTrendSpan(tr.rh)}`:'—';
+  const slpStr=(P.slp!=null)?`${P.slp.toFixed(1)} hPa${synopTrendSpan(tr.slp)}`:'—';
+  const presStr=(P.stn_pres!=null)?`${P.stn_pres.toFixed(1)} hPa${synopTrendSpan(tr.stn_pres)}`:'—';
   let rainStr='—';
   if(P.precip_mm!=null){rainStr=`${P.precip_mm} mm`;if(P.precip_period&&P.precip_period!=='—')rainStr+=` / ${P.precip_period}`;}
   const maxTStr=(P.temp_max!=null)?`${P.temp_max.toFixed(1)}°C`:'—';
@@ -4294,7 +4306,25 @@ const SONDE_LAT=12.180, SONDE_LON=-68.960;
 const SONDE_CACHE_KEY='sonde-cache-v2';
 const SONDE_HISTORY_KEY='sonde-history-v1';
 const SONDE_HISTORY_MAX=10; // ~5 days at 2 cycles/day — enough for a short trend, not a huge blob in localStorage
+const SONDE_SYNOP_HIST_KEY='sonde-synop-history-v1';
+const SONDE_SYNOP_HIST_MAX=10;
 let __sondeLoading=false;
+/* Rolling history of the same-hour SYNOP's key numeric fields, for the
+   trend arrows on that panel — separate from the sounding-indices history
+   above since it's keyed by the SYNOP bulletin's own time, not the
+   sounding cycle (the two usually match, per loadSondeSynop's hour check,
+   but aren't the same identifier). */
+function sondeSynopHistoryUpdate(bulletinTime,vals){
+  let hist=[];
+  try{ hist=JSON.parse(localStorage.getItem(SONDE_SYNOP_HIST_KEY))||[]; }catch(e){}
+  if(!Array.isArray(hist))hist=[];
+  if(bulletinTime&&(!hist.length||hist[hist.length-1].bulletinTime!==bulletinTime)){
+    hist.push({bulletinTime,...vals});
+    if(hist.length>SONDE_SYNOP_HIST_MAX)hist=hist.slice(hist.length-SONDE_SYNOP_HIST_MAX);
+    try{localStorage.setItem(SONDE_SYNOP_HIST_KEY,JSON.stringify(hist));}catch(e){}
+  }
+  return hist;
+}
 /* Rolling history of a handful of key indices per cycle, for the small
    sparkline on each tile — separate from SONDE_CACHE_KEY (which only ever
    holds the single most recent cycle, used for the up/down/flat arrow).
@@ -5166,35 +5196,16 @@ async function sondeFindParsedText(){
   }
   return null;
 }
-/* Surface SYNOP for the same station (78988 = TNCC Hato) as the sounding
-   above, filtered down to just the groups that matter next to a Skew-T:
-   wind, cloud, present weather (ww), visibility, and precipitation. Reuses
-   the same decoder as the SYNOP tab — 78988 is TNCC's own WMO synoptic
-   station, so it's in the same bulletins already fetched there. */
-function sondeSynopFieldsHtml(P){
-  let windStr='—';
-  if(P.wind_dir==='Calm') windStr='Calm';
-  else if(P.wind_speed_kn!=null) windStr=`${P.wind_dir&&P.wind_dir!=='Variable'?P.wind_dir+' ':P.wind_dir==='Variable'?'Variable ':''}${P.wind_speed_kn}kt`;
-  else if(P.wind_dir) windStr=P.wind_dir;
-
-  let cloudStr=P.cloud_cover?P.cloud_cover+(P.cloud_oktas!=null?` (${P.cloud_oktas}/8)`:''):'—';
-  if(P.cloud_base_h) cloudStr+=(cloudStr==='—'?'':' · ')+`base ${P.cloud_base_h}`;
-  if(P.CL&&P.CL!=='—') cloudStr+=`, CL ${P.CL}`;
-  if(P.CM&&P.CM!=='—') cloudStr+=`, CM ${P.CM}`;
-
-  let rainStr='—';
-  if(P.precip_mm!=null) rainStr=`${P.precip_mm} mm`+(P.precip_period&&P.precip_period!=='—'?` / ${P.precip_period}`:'');
-
-  const rows=[['Wind',windStr,false],['Cloud',cloudStr,true],['Weather (ww)',P.wx_desc||'—',false],['Visibility',P.vis||'—',false],['Rain',rainStr,false]];
-  return rows.map(([lbl,val,wide])=>
-    `<div class="knmi-tile"${wide?' style="grid-column:span 2"':''}><div class="knmi-tile-lbl">${escapeHtml(lbl)}</div><div class="knmi-tile-val" style="font-size:var(--fs-16)">${escapeHtml(String(val))}</div></div>`
-  ).join('');
-}
-/* NOAA's raw feed only ever holds the latest bulletin, not an archive —
-   so this only has something to show when the latest SYNOP happens to be
-   for the same hour as the sounding's cycle (both 00Z/12Z are also main
-   synoptic hours, so this lines up whenever the page is checked reasonably
-   soon after that cycle publishes). Otherwise says so plainly rather than
+/* Full surface SYNOP card for the same station (78988 = TNCC Hato) as the
+   sounding above, with trend arrows on the key numeric fields — reuses
+   makeSynopCard verbatim (78988 is TNCC's own WMO synoptic station, so
+   it's in the same bulletins the SYNOP tab already fetches) rather than a
+   separate hand-built summary, so this always matches that card exactly.
+   NOAA's raw feed only ever holds the latest bulletin, not an archive, so
+   this only has something to show when that bulletin happens to be for the
+   same hour as the sounding's cycle (both 00Z/12Z are also main synoptic
+   hours, so this lines up whenever the page is checked reasonably soon
+   after that cycle publishes). Otherwise says so plainly rather than
    silently showing a different hour's conditions unlabeled. */
 async function loadSondeSynop(cycleDt){
   const panel=byId('sonde-synop-panel');
@@ -5215,8 +5226,21 @@ async function loadSondeSynop(cycleDt){
       const hm=decoded.bulletinTime.match(/(\d{2}):(\d{2})Z/);
       const hh=hm?parseInt(hm[1],10):null;
       if(hh!==targetHour)continue;
-      panel.innerHTML=`<div class="sonde-synop-hd">🌦 SYNOP 78988 · ${escapeHtml(decoded.bulletinTime)}</div>`+
-        `<div class="sonde-grid">${sondeSynopFieldsHtml(rep.P)}</div>`;
+      const P=rep.P;
+      const prevHist=sondeSynopHistoryUpdate(decoded.bulletinTime,{
+        temp_c:P.temp_c,dew_c:P.dew_c,rh:P.rh,wind_speed_kn:P.wind_speed_kn,slp:P.slp,stn_pres:P.stn_pres
+      });
+      const prev=prevHist.length>1?prevHist[prevHist.length-2]:null;
+      const trend=prev?{
+        temp_c:sondeTrend(P.temp_c,prev.temp_c,0.5),
+        dew_c:sondeTrend(P.dew_c,prev.dew_c,0.5),
+        rh:sondeTrend(P.rh,prev.rh,3),
+        wind_speed_kn:sondeTrend(P.wind_speed_kn,prev.wind_speed_kn,3),
+        slp:sondeTrend(P.slp,prev.slp,0.3),
+        stn_pres:sondeTrend(P.stn_pres,prev.stn_pres,0.3)
+      }:{};
+      panel.innerHTML=`<div class="sonde-synop-hd">🌦 Surface SYNOP — same hour as sounding</div>`;
+      panel.appendChild(makeSynopCard(rep,decoded.bulletinTime,trend));
       return;
     }catch(e){}
   }
@@ -5385,7 +5409,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeSynopFieldsHtml,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeSynopHistoryUpdate,makeSynopCard,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT};
 })();
 </script>
 
