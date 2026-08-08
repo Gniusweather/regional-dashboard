@@ -5006,10 +5006,6 @@ function sondeCloudLayers(profile){
   if(cur&&layers.length<4) layers.push(cur);
   return layers;
 }
-/* Surface parcel ascent — lifted dry-adiabatically to the LCL (constant
-   mixing ratio) then moist-adiabatically above it. Shared by the CAPE/CIN
-   calculation and the chart's parcel trace/LCL marker/shading, so both
-   always agree with each other exactly. */
 /* Shared parcel-ascent core: lift a parcel with starting temperature T0 and
    dewpoint Td0 at pressure P0, dry-adiabatically to its LCL (holding
    mixing ratio constant) then moist-adiabatically above it. Used by both
@@ -5089,7 +5085,17 @@ function sondeMixedLayerParcel(profileRaw,depthHpa){
   if(mlTop<=Ptop) return null; // profile too shallow for a full mixed layer
   const Ttop=sondeInterpEnv(prof,mlTop,'t'), Tdtop=sondeInterpEnv(prof,mlTop,'td');
   if(Ttop==null) return null;
-  const pts=[{p:P0,t:prof[0].t,td:prof[0].td}];
+  // Same missing-surface-dewpoint fallback the surface parcel uses. Without
+  // it the surface level gets dropped from the means below (its temperature
+  // is fine, only its dewpoint is absent), which silently shrinks the layer
+  // to less than the depthHpa it still claims to average over.
+  let sfcTd=prof[0].td;
+  if(sfcTd==null){
+    const withTd=prof.filter(r=>r.td!=null);
+    if(!withTd.length) return null;
+    sfcTd=withTd.reduce((best,r)=>Math.abs(r.p-P0)<Math.abs(best.p-P0)?r:best).td;
+  }
+  const pts=[{p:P0,t:prof[0].t,td:sfcTd}];
   prof.forEach(r=>{ if(r.p<P0&&r.p>mlTop&&r.td!=null) pts.push({p:r.p,t:r.t,td:r.td}); });
   pts.push({p:mlTop,t:Ttop,td:Tdtop});
   const validPts=pts.filter(p=>p.td!=null);
@@ -5160,7 +5166,7 @@ function sondeCapeCin(parcel){
 function sondeComputeIndices(profileRaw){
   const parcel=sondeSurfaceParcel(profileRaw);
   if(!parcel||parcel.prof.length<5) return null;
-  const {prof,P0,Plcl,parcelT,envT}=parcel;
+  const {prof,Plcl,parcelT,envT}=parcel;
   const {CAPE,CIN}=sondeCapeCin(parcel);
 
   // K-index / Total Totals need T & Td at the 850/700/500 hPa mandatory levels.
@@ -5171,11 +5177,18 @@ function sondeComputeIndices(profileRaw){
   const LI=(T500!=null)?(T500-parcelT(500)):null;
 
   // Precipitable water — integrate mixing ratio over pressure while
-  // dewpoint is still reported, stopping once it runs out aloft.
-  let PW=0;
+  // dewpoint is still reported, stopping once it runs out aloft. Levels
+  // below the first reported dewpoint are skipped rather than treated as
+  // the end of the column: breaking on the very first gap meant a single
+  // missing surface dewpoint (which does happen in this station's data —
+  // it's the same gap the surface parcel already has a fallback for)
+  // threw away the entire integration and blanked the PW tile, even with
+  // good moisture data at every level above it.
+  let PW=0,started=false;
   for(let i=0;i<prof.length-1;i++){
     const a=prof[i],b=prof[i+1];
-    if(a.td==null||b.td==null)break;
+    if(a.td==null||b.td==null){ if(started)break; continue; }
+    started=true;
     PW+=0.0102*((sondeMixR(a.td,a.p)+sondeMixR(b.td,b.p))/2)*(a.p-b.p);
   }
 
@@ -5185,7 +5198,7 @@ function sondeComputeIndices(profileRaw){
     K:K!=null?Math.round(K):null,
     TT:TT!=null?Math.round(TT):null,
     PW:PW>0?+PW.toFixed(1):null,
-    LCL:Math.round(P0-Plcl>=0?Plcl:Plcl) // hPa
+    LCL:Math.round(Plcl) // hPa
   };
 }
 /* Mixed-layer (100hPa) variant of the indices above — SPC/SHARPpy-standard
