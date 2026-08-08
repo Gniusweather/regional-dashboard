@@ -4761,6 +4761,8 @@ function drawSkewT(canvas,profile,meta){
     if(idx.k!=null)rows.push(['K',idx.k.toFixed(0)+(trendGlyph[tr.k]||'')]);
     if(idx.tt!=null)rows.push(['TT',idx.tt.toFixed(0)+(trendGlyph[tr.tt]||'')]);
     if(idx.pw!=null)rows.push(['PW',idx.pw.toFixed(0)+' mm'+(trendGlyph[tr.pw]||'')]);
+    if(idx.mlCape!=null)rows.push(['MLCAPE',Math.round(idx.mlCape)+' J/kg']);
+    if(idx.mlLi!=null)rows.push(['MLLI',idx.mlLi.toFixed(1)]);
     if(idx.freezingLevel){
       const fz=idx.freezingLevel, ft=fz.hgt!=null?fz.hgt*3.28084:null;
       rows.push(['FRZ LVL',ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'kft':Math.round(ft)+'ft'):Math.round(fz.p)+'hPa']);
@@ -5008,25 +5010,14 @@ function sondeCloudLayers(profile){
    mixing ratio) then moist-adiabatically above it. Shared by the CAPE/CIN
    calculation and the chart's parcel trace/LCL marker/shading, so both
    always agree with each other exactly. */
-function sondeSurfaceParcel(profileRaw){
-  const prof=(profileRaw||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>b.p-a.p);
-  if(prof.length<2) return null;
-  const P0=prof[0].p, T0=prof[0].t;
-  // A missing surface dewpoint used to fall back to "assume saturated"
-  // (Td0=T0), which silently manufactures an unrealistically buoyant
-  // parcel — CAPE inflated well past anything physically plausible, with
-  // CIN pinned at exactly 0 as the telltale symptom (a fully-saturated
-  // parcel has essentially no dry-adiabatic ascent phase to be capped
-  // during). Use the nearest level that does report a dewpoint instead,
-  // and give up on a surface-based parcel entirely if the whole profile
-  // is dry-bulb only — a fabricated guess is worse than no answer.
-  let Td0=prof[0].td;
-  if(Td0==null){
-    const withTd=prof.filter(r=>r.td!=null);
-    if(!withTd.length) return null;
-    Td0=withTd.reduce((best,r)=>Math.abs(r.p-P0)<Math.abs(best.p-P0)?r:best).td;
-  }
-  const Ptop=prof[prof.length-1].p;
+/* Shared parcel-ascent core: lift a parcel with starting temperature T0 and
+   dewpoint Td0 at pressure P0, dry-adiabatically to its LCL (holding
+   mixing ratio constant) then moist-adiabatically above it. Used by both
+   the surface-based parcel (actual T/Td at the lowest level) and the
+   mixed-layer parcel (T/Td averaged over the lowest 100hPa) — whichever
+   supplies T0/Td0, the physics from there up is identical, and this is
+   the exact ascent verified directly against MetPy's moist_lapse. */
+function sondeParcelAscent(prof,P0,Ptop,T0,Td0){
   const w0=sondeMixR(Td0,P0), theta0=sondeTheta(T0,P0);
   let Plcl=P0,Tlcl=T0;
   for(let P=P0;P>=Ptop;P-=1){
@@ -5058,25 +5049,82 @@ function sondeSurfaceParcel(profileRaw){
   const envTd=P=>sondeInterpEnv(prof,P,'td');
   return {prof,P0,T0,Td0,Ptop,Plcl,Tlcl,theta0,w0,parcelT,parcelW,envT,envTd};
 }
-function sondeComputeIndices(profileRaw){
-  const parcel=sondeSurfaceParcel(profileRaw);
-  if(!parcel||parcel.prof.length<5) return null;
+function sondeSurfaceParcel(profileRaw){
+  const prof=(profileRaw||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>b.p-a.p);
+  if(prof.length<2) return null;
+  const P0=prof[0].p, T0=prof[0].t;
+  // A missing surface dewpoint used to fall back to "assume saturated"
+  // (Td0=T0), which silently manufactures an unrealistically buoyant
+  // parcel — CAPE inflated well past anything physically plausible, with
+  // CIN pinned at exactly 0 as the telltale symptom (a fully-saturated
+  // parcel has essentially no dry-adiabatic ascent phase to be capped
+  // during). Use the nearest level that does report a dewpoint instead,
+  // and give up on a surface-based parcel entirely if the whole profile
+  // is dry-bulb only — a fabricated guess is worse than no answer.
+  let Td0=prof[0].td;
+  if(Td0==null){
+    const withTd=prof.filter(r=>r.td!=null);
+    if(!withTd.length) return null;
+    Td0=withTd.reduce((best,r)=>Math.abs(r.p-P0)<Math.abs(best.p-P0)?r:best).td;
+  }
+  const Ptop=prof[prof.length-1].p;
+  return sondeParcelAscent(prof,P0,Ptop,T0,Td0);
+}
+/* Mixed-layer parcel — pressure-weighted mean potential temperature and
+   mixing ratio over the lowest 100hPa (the SPC/SHARPpy standard depth),
+   converted back to an effective starting temperature/dewpoint at the
+   surface pressure, then lifted with the same sondeParcelAscent used for
+   the surface parcel. A single superheated surface reading on a hot
+   tropical afternoon can overstate how buoyant a real updraft — which
+   draws air from a whole layer, not one level — would actually be; this
+   moderates that, and is what a third-party reference tool's own
+   "-PARCEL-" CAPE/LI block turned out to be reporting (its LCL differed
+   from its own surface LCL, the giveaway). */
+function sondeMixedLayerParcel(profileRaw,depthHpa){
+  depthHpa=depthHpa||100;
+  const prof=(profileRaw||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>b.p-a.p);
+  if(prof.length<2) return null;
+  const P0=prof[0].p, Ptop=prof[prof.length-1].p;
+  const mlTop=P0-depthHpa;
+  if(mlTop<=Ptop) return null; // profile too shallow for a full mixed layer
+  const Ttop=sondeInterpEnv(prof,mlTop,'t'), Tdtop=sondeInterpEnv(prof,mlTop,'td');
+  if(Ttop==null) return null;
+  const pts=[{p:P0,t:prof[0].t,td:prof[0].td}];
+  prof.forEach(r=>{ if(r.p<P0&&r.p>mlTop&&r.td!=null) pts.push({p:r.p,t:r.t,td:r.td}); });
+  pts.push({p:mlTop,t:Ttop,td:Tdtop});
+  const validPts=pts.filter(p=>p.td!=null);
+  if(validPts.length<2) return null;
+  let sumTheta=0,sumW=0,sumDp=0;
+  for(let i=0;i<validPts.length-1;i++){
+    const a=validPts[i],b=validPts[i+1];
+    const dp=a.p-b.p; if(dp<=0)continue;
+    sumTheta+=0.5*(sondeTheta(a.t,a.p)+sondeTheta(b.t,b.p))*dp;
+    sumW+=0.5*(sondeMixR(a.td,a.p)+sondeMixR(b.td,b.p))*dp;
+    sumDp+=dp;
+  }
+  if(sumDp<=0) return null;
+  const thetaMean=sumTheta/sumDp, wMean=sumW/sumDp;
+  const T0eff=sondeTOnDryAdiabat(thetaMean,P0), Td0eff=sondeMixRInvT(wMean,P0);
+  return sondeParcelAscent(prof,P0,Ptop,T0eff,Td0eff);
+}
+/* Shared CAPE/CIN integrator — takes any parcel object with the shape
+   returned by sondeSurfaceParcel/sondeMixedLayerParcel (prof,P0,Ptop,Plcl,
+   parcelT,parcelW,envT,envTd) and computes per-layer buoyancy (parcel vs.
+   environment) between consecutive profile levels, using the hypsometric
+   equation for each layer's thickness. Both buoyancy and layer thickness
+   use virtual temperature (sondeVirtualT) rather than plain T — moist air
+   is less dense than dry air at the same T/P, so skipping this understates
+   CAPE in a humid tropical column. CAPE is the largest contiguous run of
+   positive-buoyancy layers (LFC→EL) rather than every positive layer in
+   the profile — a lone layer of positive buoyancy can otherwise appear
+   anywhere the parcel and environment happen to nearly coincide (most
+   reliably right at the surface, where they start identical), and summing
+   every negative layer in the whole profile into CIN massively overcounts
+   it with the (near-always negative) stratosphere above the real
+   equilibrium level. CIN is the negative area between the surface and
+   that chosen run's start (i.e., up to the LFC) only. */
+function sondeCapeCin(parcel){
   const {prof,P0,Ptop,Plcl,parcelT,parcelW,envT,envTd}=parcel;
-
-  // CAPE/CIN — per-layer buoyancy (parcel vs. environment) between
-  // consecutive profile levels, using the hypsometric equation for each
-  // layer's thickness. Both buoyancy and layer thickness use virtual
-  // temperature (sondeVirtualT) rather than plain T — moist air is less
-  // dense than dry air at the same T/P, so skipping this understates CAPE
-  // in a humid tropical column. CAPE is the largest contiguous run of
-  // positive-buoyancy layers (LFC→EL) rather than every positive layer in
-  // the profile — a lone layer of positive buoyancy can otherwise appear
-  // anywhere the parcel and environment happen to nearly coincide (most
-  // reliably right at the surface, where they start identical), and
-  // summing every negative layer in the whole profile into CIN massively
-  // overcounts it with the (near-always negative) stratosphere above the
-  // real equilibrium level. CIN is the negative area between the surface
-  // and that chosen run's start (i.e., up to the LFC) only.
   const Rd=287.05, g=9.80665;
   const levels=new Set([P0]);
   prof.forEach(r=>{ if(r.p<P0&&r.p>=Ptop) levels.add(r.p); });
@@ -5107,6 +5155,13 @@ function sondeComputeIndices(profileRaw){
   }
   CAPE=bestSum;
   if(bestStart>0) for(let k=0;k<bestStart;k++) if(layers[k].dE<0) CIN+=layers[k].dE;
+  return {CAPE,CIN};
+}
+function sondeComputeIndices(profileRaw){
+  const parcel=sondeSurfaceParcel(profileRaw);
+  if(!parcel||parcel.prof.length<5) return null;
+  const {prof,P0,Plcl,parcelT,envT}=parcel;
+  const {CAPE,CIN}=sondeCapeCin(parcel);
 
   // K-index / Total Totals need T & Td at the 850/700/500 hPa mandatory levels.
   const T850=envT(850),T700=envT(700),T500=envT(500);
@@ -5131,6 +5186,23 @@ function sondeComputeIndices(profileRaw){
     TT:TT!=null?Math.round(TT):null,
     PW:PW>0?+PW.toFixed(1):null,
     LCL:Math.round(P0-Plcl>=0?Plcl:Plcl) // hPa
+  };
+}
+/* Mixed-layer (100hPa) variant of the indices above — SPC/SHARPpy-standard
+   parcel, computed for comparison against third-party tools (e.g. College
+   of DuPage) that use a mixed-layer or most-unstable parcel rather than a
+   pure surface parcel for their headline CAPE/CINH/LI numbers. */
+function sondeComputeMLIndices(profileRaw){
+  const parcel=sondeMixedLayerParcel(profileRaw);
+  if(!parcel||parcel.prof.length<5) return null;
+  const {Plcl,parcelT,envT}=parcel;
+  const {CAPE,CIN}=sondeCapeCin(parcel);
+  const T500=envT(500);
+  const LI=(T500!=null)?(T500-parcelT(500)):null;
+  return {
+    CAPE:Math.round(CAPE), CIN:Math.round(CIN),
+    LI:LI!=null?+LI.toFixed(1):null,
+    LCL:Math.round(Plcl)
   };
 }
 /* Merge our own computed indices (preferred, always consistent with the
@@ -5339,6 +5411,24 @@ function renderRadiosonde(opts){
     const unit=ft!=null?'ft':'hPa';
     tiles+=`<div class="knmi-tile"><div class="knmi-tile-lbl">Freezing Level</div><div class="knmi-tile-val">${val} <small>${unit}</small></div></div>`;
   }
+  // Mixed-layer (100hPa, SPC/SHARPpy-standard) parcel indices, shown
+  // alongside the surface-parcel tiles above for comparison against
+  // third-party tools that use a mixed-layer/most-unstable parcel rather
+  // than a pure surface parcel for their headline numbers.
+  const mlInd=sondeComputeMLIndices(parsed.profile);
+  if(mlInd){
+    const mlDefs=[
+      {v:mlInd.CAPE,lbl:'ML CAPE',unit:'J/kg',band:v=>v>=2500?'knmi-bad':v>=1000?'knmi-warn':'knmi-ok'},
+      {v:mlInd.CIN,lbl:'ML CIN',unit:'J/kg',band:v=>v<=-100?'knmi-warn':'knmi-ok'},
+      {v:mlInd.LI,lbl:'ML Lifted Index',unit:'',band:v=>v<=-6?'knmi-bad':v<=-3?'knmi-warn':'knmi-ok'},
+      {v:mlInd.LCL,lbl:'ML LCL',unit:'hPa',band:null}
+    ];
+    mlDefs.forEach(d=>{
+      if(d.v==null)return;
+      const cls=d.band?d.band(d.v):'';
+      tiles+=`<div class="knmi-tile ${cls}" title="Mixed-layer parcel (lowest 100hPa mean), not surface-based"><div class="knmi-tile-lbl">${d.lbl}</div><div class="knmi-tile-val">${d.v}${d.unit?` <small>${d.unit}</small>`:''}</div></div>`;
+    });
+  }
   const box=`<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
     `<div class="forecast-label">Analysis — ${escapeHtml(a.headline)}</div>`+
     `<div class="forecast-text">${escapeHtml(a.text)||'No stability indices found in this sounding.'}</div>`+
@@ -5367,7 +5457,9 @@ function renderRadiosonde(opts){
       indices:{
         cape:capeV,cin:cinV,li:liV,k:kV,tt:ttV,pw:pwV,
         trend,
-        freezingLevel
+        freezingLevel,
+        mlCape:mlInd?mlInd.CAPE:null,
+        mlLi:mlInd?mlInd.LI:null
       }
     }};
     redrawSkewT();
@@ -5467,7 +5559,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeCloudLayers,sondeSynopHistoryUpdate,makeSynopCard,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeParcelAscent,sondeMixedLayerParcel,sondeCapeCin,sondeComputeMLIndices,sondeCloudLayers,sondeSynopHistoryUpdate,makeSynopCard,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT};
 })();
 </script>
 
