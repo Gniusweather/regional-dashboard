@@ -4334,6 +4334,17 @@ const SONDE_HISTORY_MAX=10; // ~5 days at 2 cycles/day — enough for a short tr
 const SONDE_SYNOP_HIST_KEY='sonde-synop-history-v1';
 const SONDE_SYNOP_HIST_MAX=10;
 let __sondeLoading=false;
+/* Cycle of the most recently STARTED loadSondeSynop request. Since
+   loadSondeSynop is always fired fire-and-forget (never awaited by its
+   caller), two requests for different cycles can be in flight at once —
+   e.g. a manual refresh landing right as the periodic hourly check also
+   fires — and network responses aren't guaranteed to resolve in the order
+   they were sent. Without this guard, a slow, late-arriving response for
+   an OLDER cycle could win the race and overwrite the enrich cache's
+   already-correct entry for a NEWER cycle with stale data. Each call
+   checks this against its own cycle before writing anything, and bails
+   out silently if a newer request has since superseded it. */
+let __sondeLatestSynopCycleIso=null;
 /* Cache for the two async enrichments layered onto the base sounding
    (same-hour SYNOP, short-range rain outlook) — keyed by the sounding
    cycle so a genuinely new cycle starts fresh, but a re-render of the
@@ -5432,7 +5443,7 @@ async function loadSondeRainOutlook(){
   try{
     const outlook=await sondeFetchRainOutlook(6);
     if(outlook&&__skewtLast){ __skewtLast.meta.forecast=outlook; redrawSkewT(); }
-    if(outlook) setSondeEnrichCache({forecast:outlook});
+    if(outlook) setSondeEnrichCache({forecast:outlook,forecastAt:Date.now()});
   }catch(e){}
 }
 /* Index tiles, colour-banded like the KNMI tiles. */
@@ -5491,6 +5502,8 @@ async function loadSondeSynop(cycleDt){
   const panel=byId('sonde-synop-panel');
   if(!panel)return;
   if(!cycleDt){panel.innerHTML='';return;}
+  const myCycleIso=cycleDt.toISOString();
+  __sondeLatestSynopCycleIso=myCycleIso;
   const targetHour=cycleDt.getUTCHours();
   const URLS=[
     'https://tgftp.nws.noaa.gov/data/raw/si/sica20.tncc..txt',
@@ -5526,16 +5539,23 @@ async function loadSondeSynop(cycleDt){
         slp:sondeTrend(P.slp,prev.slp,0.3),
         stn_pres:sondeTrend(P.stn_pres,prev.stn_pres,0.3)
       }:{};
+      // Bail out silently if a newer request for a different cycle has
+      // started since this one — a late-arriving response for a stale
+      // cycle must not clobber the DOM or cache with old data now that a
+      // more recent request is the one that matters. See
+      // __sondeLatestSynopCycleIso's comment.
+      if(__sondeLatestSynopCycleIso!==myCycleIso)return;
       panel.innerHTML=`<div class="sonde-synop-hd">🌦 Surface SYNOP — same hour as sounding</div>`;
       panel.appendChild(makeSynopCard(rep,decoded.bulletinTime,trend));
       // Also bake it into the Skew-T canvas itself, below the sounding
       // indices, so the surface obs travel with the exported/printed chart
       // image rather than living only in this separate HTML card.
       if(__skewtLast){ __skewtLast.meta.synop={time:decoded.bulletinTime,P}; redrawSkewT(); }
-      setSondeEnrichCache({cycleIso:cycleDt.toISOString(),synopPanelHtml:panel.innerHTML,synopMeta:{time:decoded.bulletinTime,P}});
+      setSondeEnrichCache({cycleIso:myCycleIso,synopPanelHtml:panel.innerHTML,synopMeta:{time:decoded.bulletinTime,P}});
       return;
     }catch(e){}
   }
+  if(__sondeLatestSynopCycleIso!==myCycleIso)return;
   panel.innerHTML=`<div class="sonde-synop-hd sonde-synop-none">No same-hour (${pad(targetHour)}:00Z) SYNOP available for 78988 right now.</div>`;
 }
 function renderRadiosonde(opts){
@@ -5592,9 +5612,13 @@ function renderRadiosonde(opts){
   // obs shouldn't show under the old cycle's label); the rain outlook is
   // time-based, not cycle-based, so it's reused regardless of cycle as an
   // instant placeholder until the fresh fetch (already in flight) replaces
-  // it moments later.
+  // it moments later — but only while it's still fresh enough to matter.
+  // Without an age check, reopening the app after the fresh fetch also
+  // fails (e.g. offline) would show a forecast from hours or days ago
+  // with nothing marking it as stale, indistinguishable from current data.
   const enrichCache=getSondeEnrichCache();
   const sameCycle=!!(cycleIso&&enrichCache.cycleIso===cycleIso);
+  const forecastFresh=enrichCache.forecastAt&&(Date.now()-enrichCache.forecastAt)<2*3600*1000;
   const synopPanelHtml=(sameCycle&&enrichCache.synopPanelHtml)
     ?enrichCache.synopPanelHtml
     :`<div class="sonde-synop-hd sonde-synop-none">Loading same-hour SYNOP…</div>`;
@@ -5616,7 +5640,7 @@ function renderRadiosonde(opts){
         freezingLevel
       },
       synop:sameCycle?enrichCache.synopMeta:undefined,
-      forecast:enrichCache.forecast
+      forecast:forecastFresh?enrichCache.forecast:undefined
     }};
     redrawSkewT();
   }
