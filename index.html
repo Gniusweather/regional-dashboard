@@ -409,14 +409,14 @@ body::after{
   position:relative;border-radius:12px;overflow:hidden;
   border:1px solid var(--border-bright);background:#fff;
   box-shadow:var(--shadow);
-  width:100%;height:760px;display:block;
+  width:100%;height:920px;display:block;
 }
 .skewt-box canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
 /* A fixed height next to a shrinking phone width made the chart awkwardly
    tall/narrow (skewTGeom's own indices-column and margin breakpoints
    already assume a squarer aspect). Shorten it to match. */
-@media(max-width:600px){.skewt-box{height:560px;}}
-@media(max-width:400px){.skewt-box{height:460px;}}
+@media(max-width:600px){.skewt-box{height:680px;}}
+@media(max-width:400px){.skewt-box{height:560px;}}
 /* Labels/names hidden — show only the map image. */
 .windy-lbl{display:none;}
 @media(max-width:960px){.windy-widget{--windy-h:260px;grid-template-columns:1fr 1fr;}}
@@ -4697,17 +4697,22 @@ function drawSkewT(canvas,profile,meta){
     ctx.beginPath();ctx.arc(lx,ly,3,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();
   }
 
-  // Cloud layers — a light band across the full plot width wherever T and
-  // Td run close together (near-saturated air), with a small glyph + height
-  // label centered in the band, clear of the height labels (left edge) and
-  // wind barbs (right edge). Drawn behind the T/Td traces alongside the
-  // parcel shading, in a cool gray-blue distinct from the warm/cool
-  // CAPE/CIN tint.
+  // Cloud layers — a band across the full plot width wherever T and Td run
+  // close together (near-saturated air), with a small glyph + height label
+  // centered in the band, clear of the height labels (left edge) and wind
+  // barbs (right edge). Drawn behind the T/Td traces alongside the parcel
+  // shading, in a cool blue distinct from the warm/cool CAPE/CIN tint.
+  // Bumped up from a barely-there 0.24 fill with no edge — on a chart this
+  // busy with isotherms/adiabats/mixing-ratio lines a subtle tint alone
+  // nearly disappeared into them, so this now reads as a distinct layer at
+  // a glance instead of something you have to go looking for.
   sondeCloudLayers(profile).forEach(cl=>{
     const yBase=g.yOf(cl.baseP), yTop=g.yOf(cl.topP);
     const h=Math.max(1.5,yBase-yTop);
-    ctx.fillStyle='rgba(130,150,175,0.24)';
+    ctx.fillStyle='rgba(80,125,185,0.4)';
     ctx.fillRect(g.pad.l,yTop,g.plotW,h);
+    ctx.strokeStyle='rgba(45,85,135,0.65)';ctx.lineWidth=1.2;
+    ctx.strokeRect(g.pad.l,yTop,g.plotW,h);
     const midY=(yBase+yTop)/2;
     const cx=g.pad.l+g.plotW/2;
     let label;
@@ -4720,11 +4725,11 @@ function drawSkewT(canvas,profile,meta){
       const bs=fmt(baseFt),ts=fmt(topFt);
       label='☁ '+(bs===ts?bs+'ft':bs+'–'+ts+'ft');
     } else label='☁ '+Math.round(cl.baseP)+'hPa';
-    ctx.font='10.5px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.font='bold 11.5px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
     const tw=ctx.measureText(label).width;
-    ctx.fillStyle='rgba(255,255,255,0.82)';
-    ctx.fillRect(cx-tw/2-4,midY-7,tw+8,14);
-    ctx.fillStyle='rgba(55,85,115,0.95)';
+    ctx.fillStyle='rgba(255,255,255,0.88)';
+    ctx.fillRect(cx-tw/2-5,midY-8.5,tw+10,17);
+    ctx.fillStyle='rgba(30,65,105,1)';
     ctx.fillText(label,cx,midY+0.5);
   });
 
@@ -4760,22 +4765,22 @@ function drawSkewT(canvas,profile,meta){
   // blending into them. Skipped where the sounding didn't report a height,
   // or where two labels would collide. Feet are compacted to "12.3k" above
   // 1000ft so the pair still fits the narrow margin.
-  ctx.font='bold 9.5px sans-serif';ctx.textAlign='left';ctx.textBaseline='middle';
+  ctx.font='bold 12px sans-serif';ctx.textAlign='left';ctx.textBaseline='middle';
   let lastHy=-999;
   [1000,925,850,700,500,400,300,250,200,150,100].forEach(P=>{
     const h=sondeInterpEnv(prof,P,'hgt');
     if(h==null||!isFinite(h))return;
     const y=g.yOf(P);
-    if(y<g.pad.t+4||y>g.yBottom-2||Math.abs(y-lastHy)<12)return;
+    if(y<g.pad.t+5||y>g.yBottom-3||Math.abs(y-lastHy)<16)return;
     lastHy=y;
     const ft=h*3.28084;
     const ftStr=ft>=1000?(ft/1000).toFixed(1)+'k':String(Math.round(ft));
     const label=`${ftStr}ft · ${Math.round(h)}m`;
     const w=ctx.measureText(label).width;
-    ctx.fillStyle='rgba(255,255,255,0.8)';
-    ctx.fillRect(g.pad.l+1,y-6,w+6,12);
+    ctx.fillStyle='rgba(255,255,255,0.85)';
+    ctx.fillRect(g.pad.l+1,y-8,w+8,16);
     ctx.fillStyle='#1a3a5c';
-    ctx.fillText(label,g.pad.l+4,y);
+    ctx.fillText(label,g.pad.l+5,y);
   });
   ctx.textBaseline='alphabetic';
 
@@ -4795,12 +4800,14 @@ function drawSkewT(canvas,profile,meta){
   prof.forEach(r=>{
     if(r.drct==null||r.sknt==null)return;
     const y=g.yOf(r.p);
-    // Dense enough to resemble Wyoming's own chart, but 6px let levels with
-    // light/variable wind near the tropopause (rapid direction swings over
-    // a tiny pressure gap, common where speed is near zero) pile up into an
-    // illegible tangle of crossing shafts. 10px keeps it dense lower down
-    // while giving each barb enough room to stay readable.
-    if(y<g.pad.t||y>g.yBottom||Math.abs(y-lastY)<10)return;
+    // Dense reporting near the tropopause (rapid direction swings over a
+    // tiny pressure gap, common where speed is near zero) was piling
+    // barbs into an illegible overlapping tangle even at 10px — a 30+kt
+    // barb's flags/pennants extend well past the 26px shaft length used
+    // below, so barbs less than roughly that far apart still visually
+    // collide. 18px keeps enough levels to show real shear while giving
+    // each barb's full symbol room to stay legible.
+    if(y<g.pad.t||y>g.yBottom||Math.abs(y-lastY)<18)return;
     lastY=y;
     // Parsed speed is m/s; wind barb symbols are always read in knots.
     drawWindBarb(ctx,barbX,y,r.drct,r.sknt*1.94384,26);
