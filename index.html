@@ -1521,6 +1521,7 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
       <div class="section-header" style="margin-top:16px;">
         <div class="section-title">Radiosonde · TNCC Curaçao (78988)</div>
         <div class="section-controls">
+          <button id="sonde-test-notify-btn" class="btn-primary" style="font-size:11px;height:30px;padding:6px 12px;" title="Send a test notification through the same channels a real new-sounding alert uses">🔔 Test Notify</button>
           <button id="sonde-refresh-btn" class="btn-primary" style="font-size:11px;height:30px;padding:6px 12px;" title="Refresh sounding">↻ Sounding</button>
         </div>
       </div>
@@ -5729,6 +5730,39 @@ document.getElementById('sonde-refresh-btn')?.addEventListener('click',async()=>
   try{await loadRadiosonde(true);}catch(e){}
   setTimeout(()=>btn.disabled=false,800);
 });
+/* Manual test trigger for the new-sounding notification — fires the exact
+   same two channels alertNewSounding uses (ntfyPublish + in-browser
+   Notification) with a clearly-labeled test message, so clicking this is
+   the most direct way to confirm both actually reach this device/
+   subscription without waiting for a real new sounding cycle to publish. */
+async function sondeTestNotify(){
+  const ntfySent=!!(NTFY_TOPIC&&ntfyEnabled);
+  ntfyPublish('Test — New TNCC radiosonde',
+    'If this reached your ntfy app, the skew-T new-sounding push notification is working.',
+    ['balloon','white_check_mark'],3);
+  if(!('Notification' in window)) return {ntfySent,browser:'unsupported'};
+  let perm=Notification.permission;
+  if(perm==='default'){ try{ perm=await Notification.requestPermission(); }catch(e){} }
+  if(perm!=='granted') return {ntfySent,browser:'no-permission'};
+  try{
+    await showAppNotification('Test — New TNCC radiosonde',{
+      body:'If you can see this, skew-T new-sounding alerts are working.',
+      tag:'rwc-sonde-test',icon:'icon-192.png',badge:'icon-192.png'
+    });
+    return {ntfySent,browser:'sent'};
+  }catch(e){ return {ntfySent,browser:'error'}; }
+}
+document.getElementById('sonde-test-notify-btn')?.addEventListener('click',async()=>{
+  const btn=document.getElementById('sonde-test-notify-btn');
+  const orig=btn.textContent;
+  btn.disabled=true;
+  const r=await sondeTestNotify();
+  const parts=[];
+  parts.push(r.ntfySent?'ntfy sent':'ntfy off');
+  parts.push(r.browser==='sent'?'browser sent':r.browser==='no-permission'?'browser blocked':r.browser==='unsupported'?'browser unsupported':'browser error');
+  btn.textContent='🔔 '+parts.join(' · ');
+  setTimeout(()=>{btn.textContent=orig;btn.disabled=false;},5000);
+});
 // Re-check hourly regardless of which tab is active (not just while Maps is
 // open) so a new 00Z/12Z cycle — and the alert for it — isn't missed just
 // because the user is looking at METAR/TAF/etc. when it's published.
@@ -5756,7 +5790,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeParcelAscent,sondeCapeCin,sondeCloudLayers,sondeSynopHistoryUpdate,makeSynopCard,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT,sondeRainOutlook,sondeFetchRainOutlook,loadSondeRainOutlook,sondeHourlyHasPrecipData,getSondeEnrichCache,setSondeEnrichCache,alertNewSounding};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeParcelAscent,sondeCapeCin,sondeCloudLayers,sondeSynopHistoryUpdate,makeSynopCard,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT,sondeRainOutlook,sondeFetchRainOutlook,loadSondeRainOutlook,sondeHourlyHasPrecipData,getSondeEnrichCache,setSondeEnrichCache,alertNewSounding,sondeTestNotify};
 })();
 </script>
 
