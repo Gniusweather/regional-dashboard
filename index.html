@@ -4334,6 +4334,27 @@ const SONDE_HISTORY_MAX=10; // ~5 days at 2 cycles/day — enough for a short tr
 const SONDE_SYNOP_HIST_KEY='sonde-synop-history-v1';
 const SONDE_SYNOP_HIST_MAX=10;
 let __sondeLoading=false;
+/* Cache for the two async enrichments layered onto the base sounding
+   (same-hour SYNOP, short-range rain outlook) — keyed by the sounding
+   cycle so a genuinely new cycle starts fresh, but a re-render of the
+   SAME cycle (page reload, periodic auto-refresh finding nothing new)
+   can restore them immediately instead of blanking the SYNOP panel back
+   to "Loading…" and the canvas's SYNOP/outlook boxes to nothing while
+   they redundantly re-fetch data that hasn't changed. The rain outlook
+   is time-based rather than cycle-based (it's always "next N hours from
+   now"), so it's kept outside the cycle-keyed part and just used as an
+   instant placeholder until the fresh fetch — already running in
+   parallel — overwrites it moments later. */
+const SONDE_ENRICH_CACHE_KEY='sonde-enrich-cache-v1';
+function getSondeEnrichCache(){
+  try{ return JSON.parse(localStorage.getItem(SONDE_ENRICH_CACHE_KEY))||{}; }catch(e){ return {}; }
+}
+function setSondeEnrichCache(patch){
+  try{
+    const cur=getSondeEnrichCache();
+    localStorage.setItem(SONDE_ENRICH_CACHE_KEY,JSON.stringify(Object.assign(cur,patch)));
+  }catch(e){}
+}
 /* Rolling history of the same-hour SYNOP's key numeric fields, for the
    trend arrows on that panel — separate from the sounding-indices history
    above since it's keyed by the SYNOP bulletin's own time, not the
@@ -5411,6 +5432,7 @@ async function loadSondeRainOutlook(){
   try{
     const outlook=await sondeFetchRainOutlook(6);
     if(outlook&&__skewtLast){ __skewtLast.meta.forecast=outlook; redrawSkewT(); }
+    if(outlook) setSondeEnrichCache({forecast:outlook});
   }catch(e){}
 }
 /* Index tiles, colour-banded like the KNMI tiles. */
@@ -5510,6 +5532,7 @@ async function loadSondeSynop(cycleDt){
       // indices, so the surface obs travel with the exported/printed chart
       // image rather than living only in this separate HTML card.
       if(__skewtLast){ __skewtLast.meta.synop={time:decoded.bulletinTime,P}; redrawSkewT(); }
+      setSondeEnrichCache({cycleIso:cycleDt.toISOString(),synopPanelHtml:panel.innerHTML,synopMeta:{time:decoded.bulletinTime,P}});
       return;
     }catch(e){}
   }
@@ -5563,10 +5586,22 @@ function renderRadiosonde(opts){
     canPlot?`<a class="sonde-link sonde-link-big" href="#" onclick="event.preventDefault();exportSkewTPng();">⬇ Export PNG</a>`:'',
     srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding text data ↗</a>`:''
   ].filter(Boolean).join('');
+  // Restore the SYNOP/rain-outlook enrichments from cache rather than
+  // always blanking to "Loading…" — see getSondeEnrichCache's comment.
+  // The SYNOP panel is keyed to this exact cycle (a new cycle's surface
+  // obs shouldn't show under the old cycle's label); the rain outlook is
+  // time-based, not cycle-based, so it's reused regardless of cycle as an
+  // instant placeholder until the fresh fetch (already in flight) replaces
+  // it moments later.
+  const enrichCache=getSondeEnrichCache();
+  const sameCycle=!!(cycleIso&&enrichCache.cycleIso===cycleIso);
+  const synopPanelHtml=(sameCycle&&enrichCache.synopPanelHtml)
+    ?enrichCache.synopPanelHtml
+    :`<div class="sonde-synop-hd sonde-synop-none">Loading same-hour SYNOP…</div>`;
   content.innerHTML=
     `<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`+
     box+tilesGrid+
-    `<div id="sonde-synop-panel" class="sonde-synop-panel"><div class="sonde-synop-hd sonde-synop-none">Loading same-hour SYNOP…</div></div>`+
+    `<div id="sonde-synop-panel" class="sonde-synop-panel">${synopPanelHtml}</div>`+
     skewtBox+links;
   if(canPlot){
     const cycleTitle=cycleDt?`Station ${SONDE_STNM} at ${pad(cycleDt.getUTCHours())} UTC ${pad(cycleDt.getUTCDate())} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][cycleDt.getUTCMonth()]} ${cycleDt.getUTCFullYear()}`:`Station ${SONDE_STNM}`;
@@ -5579,7 +5614,9 @@ function renderRadiosonde(opts){
         cape:capeV,cin:cinV,li:liV,k:kV,tt:ttV,pw:pwV,
         trend,
         freezingLevel
-      }
+      },
+      synop:sameCycle?enrichCache.synopMeta:undefined,
+      forecast:enrichCache.forecast
     }};
     redrawSkewT();
   }
@@ -5587,15 +5624,31 @@ function renderRadiosonde(opts){
 }
 /* Alert once per genuinely new cycle (not on every re-fetch of the same
    one, and not on the very first load — nothing to compare against yet).
-   Mirrors the gating already used for the other notification types. */
+   Unlike the other notification types, this one is NOT gated behind the
+   in-app Notify toggle (notificationsEnabled) — a new sounding cycle is
+   specifically what's meant to always be alerted about. Two independent
+   channels: ntfyPublish (same push service already used unconditionally
+   for special alarm/wind/wx alerts — reaches the user's ntfy subscription
+   even with the tab closed, no browser permission involved) fires first
+   and unconditionally; the in-browser Notification is attempted
+   separately below, requesting permission on the spot if it hasn't been
+   decided yet. That request is best-effort — browsers can require a user
+   gesture to grant permission, which this automatic background check
+   isn't, so it can silently no-op in stricter browsers, which is exactly
+   why ntfy is the reliable channel here rather than the only one. */
 async function alertNewSounding(parsed,cycleIso,previousCycleIso){
   if(!previousCycleIso||!cycleIso||cycleIso===previousCycleIso)return;
-  if(!notificationsEnabled||!('Notification' in window)||Notification.permission!=='granted')return;
   const ind=sondeMergedIndices(parsed.ind,parsed.profile);
   const a=analyzeSounding(ind);
+  const body=a.text||a.headline||'New sounding data is available.';
+  ntfyPublish('New TNCC radiosonde',`${parsed.obsTime||'Curaçao'} — ${body}`,['balloon'],3);
+  if(!('Notification' in window))return;
+  let perm=Notification.permission;
+  if(perm==='default'){ try{ perm=await Notification.requestPermission(); }catch(e){} }
+  if(perm!=='granted')return;
   try{
     await showAppNotification('New TNCC radiosonde · '+(parsed.obsTime||'Curaçao'),{
-      body:(a.text||a.headline||'New sounding data is available.'),
+      body,
       tag:'rwc-sonde',icon:'icon-192.png',badge:'icon-192.png'
     });
   }catch(e){}
@@ -5679,7 +5732,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeParcelAscent,sondeCapeCin,sondeCloudLayers,sondeSynopHistoryUpdate,makeSynopCard,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT,sondeRainOutlook,sondeFetchRainOutlook,loadSondeRainOutlook,sondeHourlyHasPrecipData};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeParcelAscent,sondeCapeCin,sondeCloudLayers,sondeSynopHistoryUpdate,makeSynopCard,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT,sondeRainOutlook,sondeFetchRainOutlook,loadSondeRainOutlook,sondeHourlyHasPrecipData,getSondeEnrichCache,setSondeEnrichCache,alertNewSounding};
 })();
 </script>
 
