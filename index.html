@@ -4988,16 +4988,19 @@ window.addEventListener('resize',()=>{
   clearTimeout(__skewtResizeT);
   __skewtResizeT=setTimeout(redrawSkewT,120);
 });
-/* Redraw once at a large, fixed size so the exported/printed image is
-   crisp regardless of how small the on-screen box currently is, then
-   restore the on-screen canvas back to its normal size afterward. */
+/* Redraw once at a large, fixed size — on a throwaway offscreen canvas, so
+   the on-screen one is never touched — so the exported/printed image is
+   crisp regardless of how small the live box currently is. Height kept
+   proportional to .skewt-box's own live CSS height (920px desktop) rather
+   than an independent fixed number, so the indices/SYNOP/rain-outlook
+   boxes get the same room here they get on screen instead of being
+   cramped by a shorter export canvas whenever the live chart grows. */
 function skewtHiResDataUrl(){
   const canvas=document.querySelector('.skewt-box canvas');
   if(!canvas||!__skewtLast) return null;
-  const liveW=canvas.clientWidth,liveH=canvas.clientHeight;
   const tmp=document.createElement('canvas');
   tmp.style.position='fixed';tmp.style.left='-99999px';
-  tmp.style.width='1400px';tmp.style.height='900px';
+  tmp.style.width='1400px';tmp.style.height='1080px';
   document.body.appendChild(tmp);
   drawSkewT(tmp,__skewtLast.profile,__skewtLast.meta);
   const url=tmp.toDataURL('image/png');
