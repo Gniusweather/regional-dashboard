@@ -4792,9 +4792,9 @@ function drawSkewT(canvas,profile,meta){
       const fz=idx.freezingLevel, ft=fz.hgt!=null?fz.hgt*3.28084:null;
       rows.push(['FRZ LVL',ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'kft':Math.round(ft)+'ft'):Math.round(fz.p)+'hPa']);
     }
+    const px=6,pw=g.indicesW-10;
+    let py=g.pad.t;
     if(rows.length){
-      const px=6,pw=g.indicesW-10;
-      let py=g.pad.t;
       ctx.strokeStyle='rgba(0,0,0,0.3)';ctx.lineWidth=1;
       ctx.strokeRect(px-2,py-2,pw+4,rows.length*24+4);
       ctx.textBaseline='top';
@@ -4805,6 +4805,54 @@ function drawSkewT(canvas,profile,meta){
         ctx.fillText(r[1],px,py+10);
         py+=24;
       });
+      py+=8; // gap before the SYNOP box below
+    }
+
+    // Surface SYNOP panel — same-hour surface observation for this station,
+    // drawn directly below the sounding indices in the same reserved
+    // column so it's baked into the same exported/printed image instead of
+    // living only in the separate HTML card. Row count is capped to
+    // whatever vertical room is actually left above the plot's bottom axis
+    // (computed from py, which already accounts for the indices box above),
+    // so it degrades by omitting the least-essential fields on short mobile
+    // canvases rather than drawing rows past the canvas edge.
+    const synop=(meta&&meta.synop)||null;
+    if(synop&&synop.P){
+      const P=synop.P;
+      const srows=[];
+      let windStr=null;
+      if(P.wind_dir==='Calm') windStr='CALM';
+      else if(P.wind_dir==='Variable') windStr=P.wind_speed_kn!=null?('VRB '+P.wind_speed_kn+'kt'):'VRB';
+      else if(P.wind_dir_deg!=null) windStr=Math.round(P.wind_dir_deg)+'°'+(P.wind_speed_kn!=null?' '+P.wind_speed_kn+'kt':'');
+      if(windStr) srows.push(['WIND',windStr]);
+      if(P.temp_c!=null) srows.push(['TEMP',P.temp_c.toFixed(1)+'°C']);
+      if(P.dew_c!=null) srows.push(['DEW',P.dew_c.toFixed(1)+'°C']);
+      if(P.rh!=null) srows.push(['RH',P.rh+'%']);
+      if(P.slp!=null) srows.push(['SLP',Math.round(P.slp)+'hPa']);
+      if(P.stn_pres!=null) srows.push(['STN P',Math.round(P.stn_pres)+'hPa']);
+      if(P.vis) srows.push(['VIS',P.vis]);
+      if(P.cloud_cover) srows.push(['CLOUD',P.cloud_cover+(P.cloud_oktas!=null?' '+P.cloud_oktas+'/8':'')]);
+      if(P.precip_mm!=null) srows.push(['RAIN',P.precip_mm+'mm'+(P.precip_period?'/'+P.precip_period:'')]);
+      if(P.temp_max!=null) srows.push(['MAX T',P.temp_max.toFixed(1)+'°C']);
+      if(P.temp_min!=null) srows.push(['MIN T',P.temp_min.toFixed(1)+'°C']);
+      const avail=Math.floor((g.yBottom-10-(py+10))/24);
+      const shown=srows.slice(0,Math.max(0,avail));
+      if(shown.length){
+        ctx.font='7.5px sans-serif';ctx.fillStyle='rgba(0,0,0,0.45)';ctx.textAlign='left';ctx.textBaseline='alphabetic';
+        const tm=(synop.time||'').match(/(\d{2}:\d{2}Z)/);
+        ctx.fillText('SFC SYNOP'+(tm?' · '+tm[1]:''),px,py+7);
+        py+=10;
+        ctx.strokeStyle='rgba(0,0,0,0.3)';ctx.lineWidth=1;
+        ctx.strokeRect(px-2,py-2,pw+4,shown.length*24+4);
+        ctx.textBaseline='top';
+        shown.forEach(r=>{
+          ctx.textAlign='left';ctx.font='8.5px sans-serif';ctx.fillStyle='#555';
+          ctx.fillText(r[0],px,py);
+          ctx.textAlign='left';ctx.font='bold 11px sans-serif';ctx.fillStyle='#000';
+          ctx.fillText(r[1],px,py+10);
+          py+=24;
+        });
+      }
     }
   }
 
@@ -5409,6 +5457,10 @@ async function loadSondeSynop(cycleDt){
       }:{};
       panel.innerHTML=`<div class="sonde-synop-hd">🌦 Surface SYNOP — same hour as sounding</div>`;
       panel.appendChild(makeSynopCard(rep,decoded.bulletinTime,trend));
+      // Also bake it into the Skew-T canvas itself, below the sounding
+      // indices, so the surface obs travel with the exported/printed chart
+      // image rather than living only in this separate HTML card.
+      if(__skewtLast){ __skewtLast.meta.synop={time:decoded.bulletinTime,P}; redrawSkewT(); }
       return;
     }catch(e){}
   }
