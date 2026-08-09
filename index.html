@@ -343,6 +343,31 @@ body::after{
 }
 .sonde-synop-hd.sonde-synop-none{font-family:var(--mono);text-transform:none;letter-spacing:0.3px;font-weight:400;opacity:0.75;}
 .sonde-synop-panel .synop-card{max-width:520px;}
+/* Match the CAPE/CIN/LI/etc. index tiles' look (per-tile accent bar, bigger
+   bold value) so this card's metrics don't read as a visually different,
+   flatter component bolted onto the indices grid above it. Scoped to this
+   panel only — the main SYNOP tab's cards keep their existing compact
+   style, where a denser multi-station grid needs the smaller footprint. */
+.sonde-synop-panel .synop-m{
+  background:rgba(5,16,36,0.8);border:1px solid rgba(85,193,255,0.14);
+  border-radius:9px;padding:10px 12px;position:relative;overflow:hidden;
+}
+.sonde-synop-panel .synop-m::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--accent-strong),transparent 70%);
+}
+.sonde-synop-panel .synop-m-lbl{
+  font-size:var(--fs-10);letter-spacing:1px;font-weight:700;text-transform:uppercase;
+  color:rgba(200,225,255,0.4);margin-bottom:5px;
+}
+.sonde-synop-panel .synop-m-val{font-size:var(--fs-20);font-weight:700;color:#d0e8ff;line-height:1.1;overflow:hidden;text-overflow:ellipsis;}
+/* The bigger value font above needs more room per tile than the compact
+   96px columns the main SYNOP tab's cards use, or values like "1011.1 hPa"
+   and "Steady→inc (1)" clip against the tile edge. 170px (vs. 140px for
+   the indices grid above, whose values are all short numbers+unit) is
+   sized for the longest of these strings; auto-fit drops to a single
+   column on narrow phones instead of squeezing a clipped second one. */
+.sonde-synop-panel .synop-metrics-grid{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;}
 .sonde-link{color:var(--accent);font-family:var(--mono);font-size:var(--fs-11);text-decoration:none;align-self:flex-start;}
 .sonde-link:hover{text-decoration:underline;}
 .sonde-link-big{font-size:var(--fs-13);font-weight:700;border:1px solid var(--accent);border-radius:8px;padding:8px 14px;display:inline-block;margin-right:8px;}
