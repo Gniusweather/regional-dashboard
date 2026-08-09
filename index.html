@@ -4850,6 +4850,37 @@ function drawSkewT(canvas,profile,meta){
           ctx.fillText(r[1],px,py+10);
           py+=24;
         });
+        py+=8; // gap before the rain-outlook box below
+      }
+    }
+
+    // Short-range rain outlook — blends Open-Meteo's short-range forecast
+    // (sondeFetchRainOutlook) with this sounding's own CAPE/CIN/PW (see
+    // sondeRainOutlook), drawn as a third box in the same column so it's
+    // baked into the exported/printed image alongside the indices and
+    // SYNOP data it's derived from. Same height-capping approach as the
+    // SYNOP box above.
+    const outlook=sondeRainOutlook((meta&&meta.forecast)||null,(meta&&meta.indices)||null);
+    if(outlook){
+      const orows=[['OUTLOOK',outlook.short]];
+      if(outlook.maxProb!=null) orows.push(['CHANCE',Math.round(outlook.maxProb)+'%']);
+      if(outlook.totalMm!=null) orows.push(['AMT',outlook.totalMm.toFixed(1)+'mm/'+outlook.hours+'h']);
+      const avail2=Math.floor((g.yBottom-10-(py+10))/24);
+      const shown2=orows.slice(0,Math.max(0,avail2));
+      if(shown2.length){
+        ctx.font='7.5px sans-serif';ctx.fillStyle='rgba(0,0,0,0.45)';ctx.textAlign='left';ctx.textBaseline='alphabetic';
+        ctx.fillText('NEXT '+outlook.hours+'H',px,py+7);
+        py+=10;
+        ctx.strokeStyle='rgba(0,0,0,0.3)';ctx.lineWidth=1;
+        ctx.strokeRect(px-2,py-2,pw+4,shown2.length*24+4);
+        ctx.textBaseline='top';
+        shown2.forEach(r=>{
+          ctx.textAlign='left';ctx.font='8.5px sans-serif';ctx.fillStyle='#555';
+          ctx.fillText(r[0],px,py);
+          ctx.textAlign='left';ctx.font='bold 11px sans-serif';ctx.fillStyle='#000';
+          ctx.fillText(r[1],px,py+10);
+          py+=24;
+        });
       }
     }
   }
@@ -5298,6 +5329,70 @@ function analyzeSounding(ind){
   const headline=sev>=3?'Unstable — significant convection possible':sev>=2?'Some instability — showers or storms possible':sev>=1?'Mostly benign — isolated convection at most':'Stable airmass';
   return {icon,headline,text:parts.join('. ')+(parts.length?'.':'')};
 }
+/* Blend the model's short-range precipitation outlook (sondeFetchRainOutlook,
+   Open-Meteo's best-available hourly model) with this sounding's own
+   CAPE/CIN/PW, so a quiet model forecast doesn't hide real convective
+   potential the sounding itself shows, and a strong cap (CIN) tempers a
+   high model probability the other way. */
+function sondeRainOutlook(forecast,indices){
+  if(!forecast) return null;
+  const {maxProb,totalMm,hours}=forecast;
+  const cape=indices&&indices.cape, cin=indices&&indices.cin, pw=indices&&indices.pw;
+  const unstable=cape!=null&&cape>=1000;
+  const capped=cin!=null&&cin<=-100;
+  const moist=pw!=null&&pw>=45;
+  let label,short,icon;
+  if((maxProb!=null&&maxProb>=60)||(totalMm!=null&&totalMm>=2)){
+    if(capped){label='Rain possible — capped';short='CAPPED';icon='🌦️';}
+    else{label='Rain likely';short='LIKELY';icon='🌧️';}
+  } else if((maxProb!=null&&maxProb>=30)||(totalMm!=null&&totalMm>=0.2)||(unstable&&moist&&!capped)){
+    label='Showers possible';short='POSSIBLE';icon='🌦️';
+  } else if(unstable&&!capped){
+    label='Isolated storms possible';short='ISOLATED';icon='⛈️';
+  } else {
+    label='Dry expected';short='DRY';icon='☀️';
+  }
+  return {label,short,icon,maxProb,totalMm,hours};
+}
+/* Short-range precipitation outlook for the sounding's own station, from
+   Open-Meteo's hourly forecast (best-available model — TNCC/Curaçao isn't
+   covered by KNMI HARMONIE any more than Bonaire is, same gap noted in
+   loadKnmiCharts). Independent of the sounding's own cycle time — this
+   always looks forward from right now, since it's answering "what's
+   coming up" rather than "what did this cycle see." */
+async function sondeFetchRainOutlook(windowHours){
+  windowHours=windowHours||6;
+  const url='https://api.open-meteo.com/v1/forecast?latitude='+SONDE_LAT+'&longitude='+SONDE_LON+
+    '&hourly=precipitation_probability,precipitation&forecast_days=2&timezone=UTC';
+  const j=await fetchJsonWithFallback(url);
+  const H=j&&j.hourly;
+  if(!H||!H.time||!H.time.length) return null;
+  const nowMs=Date.now();
+  let startIdx=H.time.findIndex(t=>Date.parse(t+':00Z')>=nowMs);
+  if(startIdx<0) startIdx=Math.max(0,H.time.length-windowHours);
+  const probs=[],precs=[];
+  for(let i=startIdx;i<Math.min(startIdx+windowHours,H.time.length);i++){
+    const p=H.precipitation_probability?H.precipitation_probability[i]:null;
+    const r=H.precipitation?H.precipitation[i]:null;
+    if(p!=null&&isFinite(p))probs.push(p);
+    if(r!=null&&isFinite(r))precs.push(r);
+  }
+  if(!probs.length&&!precs.length) return null;
+  return{
+    maxProb:probs.length?Math.max(...probs):null,
+    totalMm:precs.length?+precs.reduce((a,b)=>a+b,0).toFixed(1):null,
+    hours:windowHours
+  };
+}
+/* Fetch + bake the rain outlook into the Skew-T canvas, mirroring how
+   loadSondeSynop attaches its result to __skewtLast.meta and redraws —
+   fire-and-forget so it never blocks the sounding render itself. */
+async function loadSondeRainOutlook(){
+  try{
+    const outlook=await sondeFetchRainOutlook(6);
+    if(outlook&&__skewtLast){ __skewtLast.meta.forecast=outlook; redrawSkewT(); }
+  }catch(e){}
+}
 /* Index tiles, colour-banded like the KNMI tiles. */
 function sondeTilesHtml(ind,trend,history){
   const defs=[
@@ -5515,6 +5610,7 @@ async function loadRadiosonde(force){
       // against itself and show a meaningless flat arrow on everything.
       renderRadiosonde({parsed,srcUrl:url,cycleIso,previousParsed:(previousCycleIso&&previousCycleIso!==cycleIso)?previousParsed:null});
       loadSondeSynop(dt); // fire-and-forget — doesn't block the sounding render
+      loadSondeRainOutlook(); // ditto
       try{localStorage.setItem(SONDE_CACHE_KEY,JSON.stringify({parsed,srcUrl:url,cycleIso,cachedAt:Date.now()}));}catch(e){}
       content.dataset.painted='1';
       status.className='knmi-status ok';
@@ -5563,7 +5659,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeParcelAscent,sondeCapeCin,sondeCloudLayers,sondeSynopHistoryUpdate,makeSynopCard,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeParcelAscent,sondeCapeCin,sondeCloudLayers,sondeSynopHistoryUpdate,makeSynopCard,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT,sondeRainOutlook,sondeFetchRainOutlook,loadSondeRainOutlook};
 })();
 </script>
 
