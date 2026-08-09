@@ -4788,6 +4788,8 @@ function drawSkewT(canvas,profile,meta){
     if(idx.pw!=null)rows.push(['PW',idx.pw.toFixed(0)+' mm'+(trendGlyph[tr.pw]||'')]);
     if(idx.mlCape!=null)rows.push(['MLCAPE',Math.round(idx.mlCape)+' J/kg']);
     if(idx.mlLi!=null)rows.push(['MLLI',idx.mlLi.toFixed(1)]);
+    if(idx.muCape!=null)rows.push(['MUCAPE',Math.round(idx.muCape)+' J/kg']);
+    if(idx.muLi!=null)rows.push(['MULI',idx.muLi.toFixed(1)]);
     if(idx.freezingLevel){
       const fz=idx.freezingLevel, ft=fz.hgt!=null?fz.hgt*3.28084:null;
       rows.push(['FRZ LVL',ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'kft':Math.round(ft)+'ft'):Math.round(fz.p)+'hPa']);
@@ -5186,6 +5188,43 @@ function sondeMixedLayerParcel(profileRaw,depthHpa){
   const T0eff=sondeTOnDryAdiabat(thetaMean,P0), Td0eff=sondeMixRInvT(wMean,P0);
   return sondeParcelAscent(prof,P0,Ptop,T0eff,Td0eff);
 }
+/* Equivalent potential temperature (Bolton 1980, eq. 43 — the same formula
+   MetPy's equivalent_potential_temperature uses, cross-checked earlier
+   this session), in Kelvin. Used only to locate the most-unstable
+   parcel's starting level below — not displayed directly. */
+function sondeThetaE(Tc,Tdc,P){
+  const TK=Tc+273.15, TdK=Tdc+273.15;
+  const e=sondeEs(Tdc); // hPa — saturation vapor pressure at the dewpoint = actual vapor pressure
+  const r=622*e/(P-e)/1000; // kg/kg
+  const tL=56+1/(1/(TdK-56)+Math.log(TK/TdK)/800);
+  const thL=TK*Math.pow(1000/(P-e),0.2854)*Math.pow(TK/tL,0.28*r);
+  return thL*Math.exp((3036/tL-1.78)*r*(1+0.448*r));
+}
+/* Most-unstable parcel — the single real, unmodified level with the
+   highest equivalent potential temperature within the lowest 300hPa (the
+   SPC/SHARPpy convention), lifted from its own pressure with the same
+   sondeParcelAscent core as the surface and mixed-layer parcels. Unlike
+   the mixed layer (a blended layer-mean parcel that always starts at the
+   surface pressure), this can start above the surface — the parcel most
+   representative of what a real updraft ingests when the lowest levels
+   carry a shallow, unrepresentative hot/moist spike. Third-party tools'
+   "-PARCEL-"/MU CAPE blocks are usually computing this, not a mixed
+   layer — this is what actually narrows the gap against those. */
+function sondeMostUnstableParcel(profileRaw,depthHpa){
+  depthHpa=depthHpa||300;
+  const prof=(profileRaw||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>b.p-a.p);
+  if(prof.length<2) return null;
+  const P0=prof[0].p, Ptop=prof[prof.length-1].p;
+  const searchBottom=P0-depthHpa;
+  let best=null,bestThetaE=-Infinity;
+  for(const r of prof){
+    if(r.p>P0||r.p<searchBottom||r.td==null)continue;
+    const te=sondeThetaE(r.t,r.td,r.p);
+    if(te>bestThetaE){ bestThetaE=te; best=r; }
+  }
+  if(!best) return null;
+  return sondeParcelAscent(prof,best.p,Ptop,best.t,best.td);
+}
 /* Shared CAPE/CIN integrator — takes any parcel object with the shape
    returned by sondeSurfaceParcel/sondeMixedLayerParcel (prof,P0,Ptop,Plcl,
    parcelT,parcelW,envT,envTd) and computes per-layer buoyancy (parcel vs.
@@ -5275,11 +5314,28 @@ function sondeComputeIndices(profileRaw){
   };
 }
 /* Mixed-layer (100hPa) variant of the indices above — SPC/SHARPpy-standard
-   parcel, computed for comparison against third-party tools (e.g. College
-   of DuPage) that use a mixed-layer or most-unstable parcel rather than a
-   pure surface parcel for their headline CAPE/CINH/LI numbers. */
+   parcel, for comparison against third-party tools whose headline
+   CAPE/CINH/LI turns out to be mixed-layer-based (found by cross-checking
+   against College of DuPage: its general "LI" field tracks our MLLI far
+   more closely than a surface-based LI does). */
 function sondeComputeMLIndices(profileRaw){
   const parcel=sondeMixedLayerParcel(profileRaw);
+  if(!parcel||parcel.prof.length<5) return null;
+  const {Plcl,parcelT,envT}=parcel;
+  const {CAPE,CIN}=sondeCapeCin(parcel);
+  const T500=envT(500);
+  const LI=(T500!=null)?(T500-parcelT(500)):null;
+  return {
+    CAPE:Math.round(CAPE), CIN:Math.round(CIN),
+    LI:LI!=null?+LI.toFixed(1):null,
+    LCL:Math.round(Plcl)
+  };
+}
+/* Most-unstable-parcel variant of the indices above — see
+   sondeMostUnstableParcel's comment for why this, not the mixed layer, is
+   what most third-party tools' "-PARCEL-"/MU CAPE block actually is. */
+function sondeComputeMUIndices(profileRaw){
+  const parcel=sondeMostUnstableParcel(profileRaw);
   if(!parcel||parcel.prof.length<5) return null;
   const {Plcl,parcelT,envT}=parcel;
   const {CAPE,CIN}=sondeCapeCin(parcel);
@@ -5501,10 +5557,11 @@ function renderRadiosonde(opts){
     const unit=ft!=null?'ft':'hPa';
     tiles+=`<div class="knmi-tile"><div class="knmi-tile-lbl">Freezing Level</div><div class="knmi-tile-val">${val} <small>${unit}</small></div></div>`;
   }
-  // Mixed-layer (100hPa, SPC/SHARPpy-standard) parcel indices, shown
-  // alongside the surface-parcel tiles above for comparison against
-  // third-party tools that use a mixed-layer/most-unstable parcel rather
-  // than a pure surface parcel for their headline numbers.
+  // Mixed-layer (100hPa, SPC/SHARPpy-standard) and most-unstable (max
+  // theta-e in the lowest 300hPa) parcel indices, shown alongside the
+  // surface-parcel tiles above for comparison against third-party tools
+  // that use one of those parcels rather than a pure surface parcel for
+  // their headline numbers — which one varies by tool, so both are shown.
   const mlInd=sondeComputeMLIndices(parsed.profile);
   if(mlInd){
     const mlDefs=[
@@ -5517,6 +5574,20 @@ function renderRadiosonde(opts){
       if(d.v==null)return;
       const cls=d.band?d.band(d.v):'';
       tiles+=`<div class="knmi-tile ${cls}" title="Mixed-layer parcel (lowest 100hPa mean), not surface-based"><div class="knmi-tile-lbl">${d.lbl}</div><div class="knmi-tile-val">${d.v}${d.unit?` <small>${d.unit}</small>`:''}</div></div>`;
+    });
+  }
+  const muInd=sondeComputeMUIndices(parsed.profile);
+  if(muInd){
+    const muDefs=[
+      {v:muInd.CAPE,lbl:'MU CAPE',unit:'J/kg',band:v=>v>=2500?'knmi-bad':v>=1000?'knmi-warn':'knmi-ok'},
+      {v:muInd.CIN,lbl:'MU CIN',unit:'J/kg',band:v=>v<=-100?'knmi-warn':'knmi-ok'},
+      {v:muInd.LI,lbl:'MU Lifted Index',unit:'',band:v=>v<=-6?'knmi-bad':v<=-3?'knmi-warn':'knmi-ok'},
+      {v:muInd.LCL,lbl:'MU LCL',unit:'hPa',band:null}
+    ];
+    muDefs.forEach(d=>{
+      if(d.v==null)return;
+      const cls=d.band?d.band(d.v):'';
+      tiles+=`<div class="knmi-tile ${cls}" title="Most-unstable parcel (max theta-e in the lowest 300hPa), not surface-based"><div class="knmi-tile-lbl">${d.lbl}</div><div class="knmi-tile-val">${d.v}${d.unit?` <small>${d.unit}</small>`:''}</div></div>`;
     });
   }
   const box=`<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
@@ -5549,7 +5620,9 @@ function renderRadiosonde(opts){
         trend,
         freezingLevel,
         mlCape:mlInd?mlInd.CAPE:null,
-        mlLi:mlInd?mlInd.LI:null
+        mlLi:mlInd?mlInd.LI:null,
+        muCape:muInd?muInd.CAPE:null,
+        muLi:muInd?muInd.LI:null
       }
     }};
     redrawSkewT();
@@ -5649,7 +5722,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
   }
 })();
 
-window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeParcelAscent,sondeMixedLayerParcel,sondeCapeCin,sondeComputeMLIndices,sondeCloudLayers,sondeSynopHistoryUpdate,makeSynopCard,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT};
+window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllSynops,renderMetar,renderTafRow,startTestRunner,stopTestRunner,metarState,fetchStationsData,parseSounding,renderRadiosonde,loadRadiosonde,analyzeSounding,sondeComputeIndices,sondeMergedIndices,sondeSkewtPngUrl,drawSkewT,skewTGeom,sondeMixRInvT,sondeTrend,sondeFreezingLevel,sondeHistoryUpdate,sondeSparklineSvg,sondeSurfaceParcel,sondeParcelAscent,sondeMixedLayerParcel,sondeMostUnstableParcel,sondeThetaE,sondeCapeCin,sondeComputeMLIndices,sondeComputeMUIndices,sondeCloudLayers,sondeSynopHistoryUpdate,makeSynopCard,loadSondeSynop,decodeSynopText,exportSkewTPng,printSkewT};
 })();
 </script>
 
