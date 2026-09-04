@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - patches/noaa-only-skewt.patch
+      - patches/restore-sonde-fallback.patch
       - .github/workflows/apply-noaa-skewt-patch.yml
 permissions:
   contents: write
@@ -12,16 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply patch if Wyoming URLs still present
+      - name: Restore NOAA-first with fallback if needed
         run: |
           set -e
-          if grep -q 'weather.uwyo.edu' index.html; then
-            patch -p1 < patches/noaa-only-skewt.patch
+          if grep -q 'function sondeUrls(dt){ return []; }' index.html; then
+            patch -p1 < patches/restore-sonde-fallback.patch
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add index.html
-            git commit -m 'Use NOAA raw TEMP only for Maps Skew-T (remove Wyoming)'
+            git commit -m 'NOAA raw first for Skew-T; keep indices/SYNOP; Wyoming text fallback'
             git push
           else
-            echo 'index.html already NOAA-only; nothing to apply'
+            echo 'fallback already present; nothing to apply'
           fi
