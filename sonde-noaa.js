@@ -1,4 +1,12 @@
-/* NOAA raw TEMP decoder for TNCC (78988) Skew-T */
+/* NOAA raw TEMP decoder for TNCC (78988) Skew-T
+   Live sources (mirrored hourly into sonde-latest.json for the PWA):
+   TTAA https://tgftp.nws.noaa.gov/data/raw/us/usnu01.tncc..txt
+   TTBB https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt
+   PPBB https://tgftp.nws.noaa.gov/data/raw/ug/ugnu01.tncc..txt
+   TTCC https://tgftp.nws.noaa.gov/data/raw/ul/ulnu01.tncc..txt
+   TTDD https://tgftp.nws.noaa.gov/data/raw/ue/uenu01.tncc..txt
+   PPDD https://tgftp.nws.noaa.gov/data/raw/uq/uqnu01.tncc..txt
+*/
 const SONDE_NOAA_RAW={
   TTAA:'https://tgftp.nws.noaa.gov/data/raw/us/usnu01.tncc..txt',
   TTBB:'https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt',
@@ -207,19 +215,20 @@ function parseNoaaTempParts(parts){
 }
 async function sondeFetchLocalMirror(){
   try{
-    const r=await fetch('sonde-latest.json',{cache:'no-store'});
+    const href=new URL('sonde-latest.json', (typeof document!=='undefined'&&document.baseURI)||(typeof location!=='undefined'?location.href:'./')).href;
+    const r=await fetch(href+'?t='+Date.now(),{cache:'no-store'});
     if(!r||!r.ok) return null;
     const j=await r.json();
-    if(!j||!j.parts) return null;
+    if(!j||!j.parts||!j.parts.TTAA) return null;
     const parsed=parseNoaaTempParts(j.parts);
     if(!parsed) return null;
-    return {parsed,url:'sonde-latest.json',dt:parsed.dt||new Date()};
+    parsed.source='NOAA tgftp raw TEMP (TTAA/TTBB/TTCC/TTDD)';
+    return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||new Date()};
   }catch(e){ return null; }
 }
 async function sondeFetchNoaaRaw(){
   const local=await sondeFetchLocalMirror();
   if(local) return local;
-
   const entries=Object.entries(SONDE_NOAA_RAW);
   const settled=await Promise.allSettled(entries.map(([,url])=>sondeFetchOneNoaa(url)));
   const parts={};
@@ -227,5 +236,6 @@ async function sondeFetchNoaaRaw(){
   if(!parts.TTAA && !parts.TTBB) return null;
   const parsed=parseNoaaTempParts(parts);
   if(!parsed) return null;
+  parsed.source='NOAA tgftp raw TEMP (live)';
   return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||((typeof sondeCycles==='function'&&sondeCycles()[0])||new Date())};
 }
