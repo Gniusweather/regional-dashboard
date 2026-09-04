@@ -1,0 +1,27 @@
+name: Apply NOAA Skew-T patch
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - patches/noaa-only-skewt.patch
+      - .github/workflows/apply-noaa-skewt-patch.yml
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patch if Wyoming URLs still present
+        run: |
+          set -e
+          if grep -q 'weather.uwyo.edu' index.html; then
+            patch -p1 < patches/noaa-only-skewt.patch
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add index.html
+            git commit -m 'Use NOAA raw TEMP only for Maps Skew-T (remove Wyoming)'
+            git push
+          else
+            echo 'index.html already NOAA-only; nothing to apply'
+          fi
