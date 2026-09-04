@@ -4582,7 +4582,7 @@ function skewTGeom(W,H){
   // squeezed into the narrow indices column. Narrower canvases wrap the
   // same text into more, shorter lines, so reserve more of them.
   const summaryLines=W>=700?2:(W>=450?3:4);
-  const pad={l:W>=900?52:42,r:(W>=900?64:52)+indicesW,t:12+titleLines*13+4,b:W>=900?34:28};
+  const pad={l:(W>=900?52:38)+indicesW,r:W>=900?56:46,t:12+titleLines*13+4,b:W>=900?34:28};
   const plotW=Math.max(10,W-pad.l-pad.r), plotH=Math.max(10,H-pad.t-pad.b);
   const PBOT=1000,PTOP=100,TMIN=-40,TMAX=60;
   const SKEW=plotW/plotH;
@@ -4908,7 +4908,7 @@ function drawSkewT(canvas,profile,meta){
       const fz=idx.freezingLevel, ft=fz.hgt!=null?fz.hgt*3.28084:null;
       rows.push(['FRZ LVL',ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'kft':Math.round(ft)+'ft'):Math.round(fz.p)+'hPa']);
     }
-    const px=g.pad.l+g.plotW+8,pw=g.indicesW-10;
+    const px=6,pw=g.indicesW-10;
     let py=g.pad.t;
     if(rows.length){
       ctx.strokeStyle='rgba(0,0,0,0.3)';ctx.lineWidth=1;
@@ -5027,8 +5027,8 @@ function drawSkewT(canvas,profile,meta){
   // with an ellipsis if it runs past the reserved line budget rather than
   // spilling into the plot area below.
   const sm=(meta&&meta.summary)||{};
-  const summaryFull=[sm.headline,sm.text].filter(Boolean).join(' — ');
-  if(summaryFull&&g.summaryLines>0){
+  const summaryFull='';
+  if(false&&summaryFull&&g.summaryLines>0){
     ctx.font='9.5px sans-serif';ctx.fillStyle='#222';ctx.textAlign='left';ctx.textBaseline='top';
     const maxW=g.plotW;
     const words=summaryFull.split(' ');
@@ -5741,9 +5741,9 @@ function renderRadiosonde(opts){
     :`<div class="sonde-synop-hd sonde-synop-none">Loading same-hour SYNOP…</div>`;
   content.innerHTML=
     `<div class="sonde-head">🎈 78988 TNCC Hato, Curaçao${parsed.obsTime?` · <b>${escapeHtml(parsed.obsTime)}</b>`:''}</div>`+
-    box+tilesGrid+
+    tilesGrid+
     `<div id="sonde-synop-panel" class="sonde-synop-panel">${synopPanelHtml}</div>`+
-    skewtBox+links;
+    skewtBox+box+links;
   if(canPlot){
     const cycleTitle=cycleDt?`Station ${SONDE_STNM} at ${pad(cycleDt.getUTCHours())} UTC ${pad(cycleDt.getUTCDate())} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][cycleDt.getUTCMonth()]} ${cycleDt.getUTCFullYear()}`:`Station ${SONDE_STNM}`;
     __skewtLast={profile:parsed.profile,meta:{
