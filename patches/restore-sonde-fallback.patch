@@ -1,0 +1,51 @@
+--- a/index.html
++++ b/index.html
+@@ -4530,7 +4530,12 @@
+   out.sort((a,b)=>b-a);
+   return out.slice(0,4);
+ }
+-function sondeUrls(dt){ return []; }
++function sondeUrls(dt){
++  const Y=dt.getUTCFullYear(), M=pad(dt.getUTCMonth()+1), D=pad(dt.getUTCDate()), H=pad(dt.getUTCHours());
++  return [
++    `https://weather.uwyo.edu/wsgi/sounding?datetime=${Y}-${M}-${D}%20${H}:00:00&id=${SONDE_STNM}&src=UNKNOWN&type=TEXT:LIST`
++  ];
++}
+ function sondeSkewtPngUrl(dt){ return null; }
+ function sondeMixRInvT(w,P){ // inverse of sondeMixR: T (°C) at which sat. mixing ratio equals w (g/kg) at pressure P
+   const es=w*P/(622+w);
+@@ -5561,9 +5566,20 @@
+ /* Find the newest cycle whose TEXT data parses. */
+ async function sondeFindParsedText(){
+   try{
+-    const noaa=await sondeFetchNoaaRaw();
+-    if(noaa&&noaa.parsed&&noaa.parsed.profile&&noaa.parsed.profile.length>=8) return noaa;
++    if(typeof sondeFetchNoaaRaw==='function'){
++      const noaa=await sondeFetchNoaaRaw();
++      if(noaa&&noaa.parsed&&noaa.parsed.profile&&noaa.parsed.profile.length>=8) return noaa;
++    }
+   }catch(e){}
++  for(const dt of sondeCycles()){
++    for(const url of sondeUrls(dt)){
++      try{
++        const text=await sondeFetchRaw(url);
++        const parsed=parseSounding(text);
++        if(parsed) return {parsed,url,dt};
++      }catch(e){}
++    }
++  }
+   return null;
+ }
+ /* Full surface SYNOP card for the same station (78988 = TNCC Hato) as the
+@@ -5816,9 +5832,11 @@
+       alertNewSounding(parsed,cycleIso,previousCycleIso);
+     } else if(content.dataset.painted){
+       status.textContent='⚠ Refresh failed — showing the last loaded sounding.';
++      try{ loadSondeSynop(sondeCycles()[0]); }catch(e){}
+     } else {
+       status.className='knmi-status err';
+       status.textContent='⚠ Could not load the TNCC sounding. Try ↻ Sounding.';
++      try{ loadSondeSynop(sondeCycles()[0]); }catch(e){}
+     }
+   } finally {
+     __sondeLoading=false;
