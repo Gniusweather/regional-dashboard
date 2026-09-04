@@ -205,7 +205,21 @@ function parseNoaaTempParts(parts){
   }
   return {obsTime,ind:{},profile,dt};
 }
+async function sondeFetchLocalMirror(){
+  try{
+    const r=await fetch('sonde-latest.json',{cache:'no-store'});
+    if(!r||!r.ok) return null;
+    const j=await r.json();
+    if(!j||!j.parts) return null;
+    const parsed=parseNoaaTempParts(j.parts);
+    if(!parsed) return null;
+    return {parsed,url:'sonde-latest.json',dt:parsed.dt||new Date()};
+  }catch(e){ return null; }
+}
 async function sondeFetchNoaaRaw(){
+  const local=await sondeFetchLocalMirror();
+  if(local) return local;
+
   const entries=Object.entries(SONDE_NOAA_RAW);
   const settled=await Promise.allSettled(entries.map(([,url])=>sondeFetchOneNoaa(url)));
   const parts={};
