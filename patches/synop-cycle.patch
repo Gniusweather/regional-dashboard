@@ -1,0 +1,67 @@
+--- a/index.html
++++ b/index.html
+@@ -5599,11 +5599,14 @@
+   if(!cycleDt){panel.innerHTML='';return;}
+   const myCycleIso=cycleDt.toISOString();
+   __sondeLatestSynopCycleIso=myCycleIso;
+-  const targetHour=cycleDt.getUTCHours();
++  let targetHour=cycleDt.getUTCHours();
++  if(targetHour!==0&&targetHour!==12) targetHour=targetHour<6?0:(targetHour<18?12:0);
+   const URLS=[
+     'https://tgftp.nws.noaa.gov/data/raw/si/sica20.tncc..txt',
+     'https://tgftp.nws.noaa.gov/data/raw/sm/smca01.tncc..txt'
+   ];
++  const Y=cycleDt.getUTCFullYear(), Mo=pad(cycleDt.getUTCMonth()+1), Da=pad(cycleDt.getUTCDate()), Hh=pad(targetHour);
++  URLS.push(`https://www.ogimet.com/cgi-bin/getsynop?block=78988&begin=${Y}${Mo}${Da}${Hh}00&end=${Y}${Mo}${Da}${Hh}59`);
+   // Both URLs in parallel, one attempt each — fetchWithRetries's own retry
+   // already races 5 sources internally per attempt (~12s worst case), so
+   // trying 2 URLs *sequentially* with 2 retries apiece (the original code)
+@@ -5620,25 +5623,30 @@
+   // one is present, but fall back to whatever the latest real bulletin is
+   // and label it with its own actual time rather than hide it.
+   let sameHourRep=null, sameHourDecoded=null;
+-  let latestRep=null, latestDecoded=null, latestHH=-1;
+   for(const res of results){
+     if(res.status!=='fulfilled')continue;
+     try{
+       const out=res.value;
+       if(!out||!out.ok||!out.text)continue;
+-      const decoded=decodeSynopText(out.text);
++      let rawTxt=out.text;
++      if(/getsynop|,20\d{2},/.test(rawTxt)||/^[0-9]{5},/.test(rawTxt.trim())){
++        const line=rawTxt.split(/\n/).find(l=>l.includes('AAXX')&&l.includes('78988'))||'';
++        const parts=line.split(',');
++        const msg=parts.length>=7?parts.slice(6).join(',').trim():line;
++        if(msg.includes('AAXX')) rawTxt=`SICA20 TNCC ${pad(cycleDt.getUTCDate())}${pad(targetHour)}00\n`+msg;
++      }
++      const decoded=decodeSynopText(rawTxt);
+       const rep=(decoded.reports||[]).find(r=>r.stn==='78988');
+       if(!rep||!decoded.bulletinTime)continue;
+       const hm=decoded.bulletinTime.match(/(\d{2}):(\d{2})Z/);
+       const hh=hm?parseInt(hm[1],10):null;
+-      if(hh===targetHour&&!sameHourRep){sameHourRep=rep;sameHourDecoded=decoded;}
+-      if(hh!=null&&hh>latestHH){latestRep=rep;latestDecoded=decoded;latestHH=hh;}
++      if((hh===0||hh===12)&&hh===targetHour&&!sameHourRep){sameHourRep=rep;sameHourDecoded=decoded;}
+     }catch(e){}
+   }
+   {
+-    const rep=sameHourRep||latestRep;
+-    const decoded=sameHourDecoded||latestDecoded;
+-    const isSameHour=!!sameHourRep;
++    const rep=sameHourRep;
++    const decoded=sameHourDecoded;
++    const isSameHour=true;
+     if(rep&&decoded){
+       const P=rep.P;
+       const prevHist=sondeSynopHistoryUpdate(decoded.bulletinTime,{
+@@ -5659,9 +5667,7 @@
+       // more recent request is the one that matters. See
+       // __sondeLatestSynopCycleIso's comment.
+       if(__sondeLatestSynopCycleIso!==myCycleIso)return;
+-      const hd=isSameHour
+-        ? '🌦 Surface SYNOP — same hour as sounding'
+-        : `🌦 Surface SYNOP — latest available (${decoded.bulletinTime}, sounding is ${pad(targetHour)}:00Z)`;
++      const hd=`🌦 Surface SYNOP — ${pad(targetHour)}:00Z (same cycle as Skew-T)`;
+       panel.innerHTML=`<div class="sonde-synop-hd">${hd}</div>`;
+       panel.appendChild(makeSynopCard(rep,decoded.bulletinTime,trend));
+       // Also bake it into the Skew-T canvas itself, below the sounding
