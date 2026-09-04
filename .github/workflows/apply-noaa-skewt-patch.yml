@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - patches/cod-skewt-style.patch
+      - patches/desktop-skewt.patch
       - .github/workflows/apply-noaa-skewt-patch.yml
 permissions:
   contents: write
@@ -12,16 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply COD layout if old tall box is present
+      - name: Enlarge desktop Skew-T
         run: |
           set -e
-          if grep -F 'height:920px' index.html; then
-            patch -p1 < patches/cod-skewt-style.patch
+          if grep -F 'height:640px' index.html; then
+            patch -p1 < patches/desktop-skewt.patch
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add index.html
-            git commit -m 'COD-style Skew-T: red T, green Td, right indices, phone size'
+            git commit -m 'Optimize Skew-T size for desktop while keeping phone layout'
             git push
           else
-            echo 'COD layout already applied'
+            echo 'desktop size already applied'
           fi
