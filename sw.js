@@ -1,8 +1,9 @@
 /* Regional Weather Centre — service worker (app-shell cache, live data passthrough) */
-const CACHE = 'rwc-shell-v7';
+const CACHE = 'rwc-shell-v8';
 const ASSETS = [
   './',
   './index.html',
+  './sonde-noaa.js',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
