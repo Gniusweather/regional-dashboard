@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - patches/cod-skewt-style.patch
       - .github/workflows/apply-noaa-skewt-patch.yml
 permissions:
   contents: write
@@ -11,45 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Insert local snapshot loader and bump SW
+      - name: Apply COD layout if old tall box is present
         run: |
-          python3 << 'PY'
-          from pathlib import Path
-          p=Path('sonde-noaa.js')
-          t=p.read_text()
-          needle='async function sondeFetchNoaaRaw(){'
-          insert='''async function sondeFetchLocalMirror(){
-            try{
-              const r=await fetch('sonde-latest.json',{cache:'no-store'});
-              if(!r||!r.ok) return null;
-              const j=await r.json();
-              if(!j||!j.parts) return null;
-              const parsed=parseNoaaTempParts(j.parts);
-              if(!parsed) return null;
-              return {parsed,url:'sonde-latest.json',dt:parsed.dt||new Date()};
-            }catch(e){ return null; }
-          }
-          async function sondeFetchNoaaRaw(){
-            const local=await sondeFetchLocalMirror();
-            if(local) return local;
-          '''
-          if 'sondeFetchLocalMirror' not in t:
-              if needle not in t:
-                  raise SystemExit('anchor missing')
-              t=t.replace(needle, insert, 1)
-              p.write_text(t)
-              print('patched sonde-noaa.js')
-          else:
-              print('already patched')
-          sw=Path('sw.js').read_text()
-          sw=sw.replace("const CACHE = 'rwc-shell-v8';", "const CACHE = 'rwc-shell-v9';")
-          if 'sonde-latest.json' not in sw:
-              sw=sw.replace("'./sonde-noaa.js',", "'./sonde-noaa.js',\n  './sonde-latest.json',")
-          Path('sw.js').write_text(sw)
-          print('sw cache', 'rwc-shell-v9' in sw)
-          PY
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add sonde-noaa.js sw.js
-          git diff --cached --quiet || git commit -m 'Load Skew-T from same-origin NOAA snapshot; bump PWA cache to v9'
-          git push
+          set -e
+          if grep -F 'height:920px' index.html; then
+            patch -p1 < patches/cod-skewt-style.patch
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add index.html
+            git commit -m 'COD-style Skew-T: red T, green Td, right indices, phone size'
+            git push
+          else
+            echo 'COD layout already applied'
+          fi
