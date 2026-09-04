@@ -7,6 +7,32 @@ const SONDE_NOAA_RAW={
   TTDD:'https://tgftp.nws.noaa.gov/data/raw/ue/uenu01.tncc..txt',
   PPDD:'https://tgftp.nws.noaa.gov/data/raw/uq/uqnu01.tncc..txt'
 };
+function sondeLooksLikeTemp(text){
+  const t=String(text||'');
+  if(t.length<40) return false;
+  if(/valid API key|AuthenticationRequired|AccessDenied/i.test(t)) return false;
+  return /\b(TTAA|TTBB|TTCC|TTDD|PPBB|PPDD|78988|TNCC)\b/i.test(t);
+}
+async function sondeFetchOneNoaa(url){
+  if(typeof fetchWithRetries==='function'){
+    const o=await fetchWithRetries(url,2);
+    if(o&&o.ok&&sondeLooksLikeTemp(o.text)) return o.text.trim();
+  }
+  const encoded=encodeURIComponent(url);
+  const proxies=[
+    'https://api.allorigins.win/raw?url='+encoded,
+    'https://corsproxy.io/?url='+encoded
+  ];
+  for(const p of proxies){
+    try{
+      const r=await fetch(p,{cache:'no-store'});
+      if(!r||!r.ok) continue;
+      const t=await r.text();
+      if(sondeLooksLikeTemp(t)) return t.trim();
+    }catch(e){}
+  }
+  throw new Error('noaa fetch failed '+url);
+}
 function sondeTempGroups(text){
   return String(text||'').replace(/=\s*$/m,'').split(/\s+/).map(t=>t.replace(/=/g,'')).filter(t=>t.length===5);
 }
@@ -181,11 +207,11 @@ function parseNoaaTempParts(parts){
 }
 async function sondeFetchNoaaRaw(){
   const entries=Object.entries(SONDE_NOAA_RAW);
-  const settled=await Promise.allSettled(entries.map(([,url])=>sondeFetchRaw(url)));
+  const settled=await Promise.allSettled(entries.map(([,url])=>sondeFetchOneNoaa(url)));
   const parts={};
   entries.forEach(([k],i)=>{ if(settled[i].status==='fulfilled') parts[k]=settled[i].value; });
   if(!parts.TTAA && !parts.TTBB) return null;
   const parsed=parseNoaaTempParts(parts);
   if(!parsed) return null;
-  return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||sondeCycles()[0]};
+  return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||((typeof sondeCycles==='function'&&sondeCycles()[0])||new Date())};
 }
