@@ -1,0 +1,8 @@
+{
+  "TTAA": "https://tgftp.nws.noaa.gov/data/raw/us/usnu01.tncc..txt",
+  "TTBB": "https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt",
+  "PPBB": "https://tgftp.nws.noaa.gov/data/raw/ug/ugnu01.tncc..txt",
+  "TTCC": "https://tgftp.nws.noaa.gov/data/raw/ul/ulnu01.tncc..txt",
+  "TTDD": "https://tgftp.nws.noaa.gov/data/raw/ue/uenu01.tncc..txt",
+  "PPDD": "https://tgftp.nws.noaa.gov/data/raw/uq/uqnu01.tncc..txt"
+}
