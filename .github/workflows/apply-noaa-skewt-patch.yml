@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - patches/desktop-skewt.patch
+      - patches/left-indices.patch
       - .github/workflows/apply-noaa-skewt-patch.yml
 permissions:
   contents: write
@@ -12,16 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Enlarge desktop Skew-T
+      - name: Move indices left; keep analysis off canvas
         run: |
           set -e
-          if grep -F 'height:640px' index.html; then
-            patch -p1 < patches/desktop-skewt.patch
+          if grep -F 'px=g.pad.l+g.plotW+8' index.html; then
+            patch -p1 < patches/left-indices.patch
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add index.html
-            git commit -m 'Optimize Skew-T size for desktop while keeping phone layout'
+            git commit -m 'Move indices/SYNOP/outlook to left of Skew-T; analysis text outside chart'
             git push
           else
-            echo 'desktop size already applied'
+            echo 'left column already applied'
           fi
