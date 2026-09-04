@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - patches/restore-sonde-fallback.patch
+      - patches/sonde-local-mirror.patch
       - .github/workflows/apply-noaa-skewt-patch.yml
 permissions:
   contents: write
@@ -12,16 +12,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Restore NOAA-first with fallback if needed
+      - name: Apply local mirror + bump SW cache
         run: |
           set -e
-          if grep -F 'sondeUrls(dt){ return []; }' index.html; then
-            patch -p1 < patches/restore-sonde-fallback.patch
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add index.html
-            git commit -m 'NOAA raw first for Skew-T; keep indices/SYNOP; Wyoming text fallback'
-            git push
-          else
-            echo 'fallback already present; nothing to apply'
+          if ! grep -F 'sondeFetchLocalMirror' sonde-noaa.js; then
+            patch -p1 < patches/sonde-local-mirror.patch
           fi
+          sed -i "s/rwc-shell-v8/rwc-shell-v9/" sw.js
+          if ! grep -q sonde-latest.json sw.js; then
+            sed -i "s|'./sonde-noaa.js'|'./sonde-noaa.js',\n  './sonde-latest.json'|" sw.js
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add sonde-noaa.js sw.js
+          git diff --cached --quiet || git commit -m 'Load Skew-T from same-origin NOAA snapshot; bump PWA cache'
+          git push || true
