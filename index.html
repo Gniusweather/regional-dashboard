@@ -7,6 +7,7 @@
 
 <!-- PWA / home-screen app -->
 <link rel="manifest" href="manifest.webmanifest" />
+<script src="sonde-noaa.js"></script>
 <meta name="theme-color" content="#020d18" />
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
 <link rel="apple-touch-icon" href="icon-180.png" />
@@ -4416,15 +4417,14 @@ function refreshMapWindows(){
 }
 setInterval(refreshMapWindows, 10*60*1000); // every 10 minutes
 
-/* ════════ RADIOSONDE — latest TNCC (Hato, Curaçao) upper-air sounding indices ════════
-   Source: University of Wyoming upper-air archive (station 78988) — text
-   data only, the Skew-T diagram is hand-drawn from it (see drawSkewT).
-   Fetched automatically on Maps-tab open and hourly thereafter, so it
-   always reflects the latest 00Z/12Z cycle without the user doing anything. */
+/* RADIOSONDE — latest TNCC (Hato, Curaçao) upper-air sounding indices
+   Source: NOAA tgftp raw TEMP parts (TTAA/TTBB/TTCC/TTDD) for station 78988.
+   Decoder: sonde-noaa.js. Skew-T is hand-drawn via drawSkewT.
+   Fetched automatically on Maps-tab open and hourly thereafter. */
 const SONDE_STNM='78988';
 const SONDE_NAME='HATO AIRPORT, CURACAO, CURACAO, ST MAARTEN AND/ET ARUBA';
 const SONDE_LAT=12.180, SONDE_LON=-68.960;
-const SONDE_CACHE_KEY='sonde-cache-v2';
+const SONDE_CACHE_KEY='sonde-cache-v3-noaa';
 const SONDE_HISTORY_KEY='sonde-history-v1';
 const SONDE_HISTORY_MAX=10; // ~5 days at 2 cycles/day — enough for a short trend, not a huge blob in localStorage
 const SONDE_SYNOP_HIST_KEY='sonde-synop-history-v1';
@@ -4530,37 +4530,8 @@ function sondeCycles(){
   out.sort((a,b)=>b-a);
   return out.slice(0,4);
 }
-/* Wyoming discontinued the legacy cgi-bin/sounding endpoint (URLs in that
-   format now 404/fail outright) — the wsgi endpoint below is the only one
-   that still works. Keeping the dead cgi-bin URL as a "fallback" candidate
-   was actively counterproductive: sondeFindParsedText tries every URL for
-   every cycle in sequence, so each dead cgi-bin attempt burned a full
-   ~9s timeout (all 4 of its own proxy sub-fetchers failing against a dead
-   page) before ever reaching the working wsgi URL — on a slow connection
-   this could push the whole search past what felt like "give up" territory
-   well before it ever got to a URL that could actually succeed. */
-function sondeUrls(dt){
-  const Y=dt.getUTCFullYear(), M=pad(dt.getUTCMonth()+1), D=pad(dt.getUTCDate()), H=pad(dt.getUTCHours());
-  return [
-    `https://weather.uwyo.edu/wsgi/sounding?datetime=${Y}-${M}-${D}%20${H}:00:00&id=${SONDE_STNM}&src=UNKNOWN&type=TEXT:LIST`
-  ];
-}
-/* Wyoming's own rendered Skew-T chart for a given cycle — linked out to
-   directly, not embedded (past attempts to embed it never rendered
-   reliably). */
-function sondeSkewtPngUrl(dt){
-  const Y=dt.getUTCFullYear(), M=pad(dt.getUTCMonth()+1), D=pad(dt.getUTCDate()), H=pad(dt.getUTCHours());
-  return `https://weather.uwyo.edu/wsgi/sounding?datetime=${Y}-${M}-${D}%20${H}:00:00&id=${SONDE_STNM}&type=PNG:SKEWT&src=BUFR`;
-}
-/* ── SKEW-T CHART, hand-drawn from the parsed profile ──
-   Standard skew-T log-P layout: y is linear in ln(pressure) (1000hPa at
-   the bottom, 100hPa at the top); x is temperature skewed by a constant
-   fraction of the height already climbed, so isotherms run bottom-left to
-   top-right at roughly 45°, matching the conventional layout. Background
-   guide lines (dry adiabats, moist adiabats, mixing ratio lines) reuse the
-   exact same thermodynamic formulas already relied on for the CAPE/CIN/LI
-   indices above (sondeTheta/sondeTOnDryAdiabat/sondeMoistLapse/sondeMixR) —
-   this is the same profile data, just plotted instead of only tabulated. */
+function sondeUrls(dt){ return []; }
+function sondeSkewtPngUrl(dt){ return null; }
 function sondeMixRInvT(w,P){ // inverse of sondeMixR: T (°C) at which sat. mixing ratio equals w (g/kg) at pressure P
   const es=w*P/(622+w);
   const L=Math.log(es/6.112);
@@ -5042,7 +5013,7 @@ function drawSkewT(canvas,profile,meta){
   }
   if(cssW>=380){
     ctx.font='9px sans-serif';ctx.fillStyle='rgba(60,60,60,0.9)';ctx.textAlign='right';
-    ctx.fillText('University of Wyoming sounding data',g.pad.l+g.plotW,g.H-4);
+    ctx.fillText('NOAA raw TEMP · TNCC 78988',g.pad.l+g.plotW,g.H-4);
   }
 
   // Plain-English summary — same analysis text shown in the HTML card above
@@ -5589,15 +5560,10 @@ function sondeTilesHtml(ind,trend,history){
 }
 /* Find the newest cycle whose TEXT data parses. */
 async function sondeFindParsedText(){
-  for(const dt of sondeCycles()){
-    for(const url of sondeUrls(dt)){
-      try{
-        const text=await sondeFetchRaw(url);
-        const parsed=parseSounding(text);
-        if(parsed) return {parsed,url,dt};
-      }catch(e){}
-    }
-  }
+  try{
+    const noaa=await sondeFetchNoaaRaw();
+    if(noaa&&noaa.parsed&&noaa.parsed.profile&&noaa.parsed.profile.length>=8) return noaa;
+  }catch(e){}
   return null;
 }
 /* Full surface SYNOP card for the same station (78988 = TNCC Hato) as the
@@ -5732,11 +5698,11 @@ function renderRadiosonde(opts){
     `<div class="forecast-label">Analysis — ${escapeHtml(a.headline)}</div>`+
     `<div class="forecast-text">${escapeHtml(a.text)||'No stability indices found in this sounding.'}</div>`+
   `</div></div>`;
-  const pngUrl=cycleDt?sondeSkewtPngUrl(cycleDt):null;
+  const pngUrl=null;
   const skewtBox=canPlot?`<div class="skewt-box"><canvas></canvas></div>`:'';
   const tilesGrid=tiles?`<div class="sonde-grid">${tiles}</div>`:'';
   const links=[
-    pngUrl?`<a class="sonde-link sonde-link-big" href="${escapeHtml(pngUrl)}" target="_blank" rel="noopener">Open Skew-T in a new tab ↗</a>`:'',
+
     canPlot?`<a class="sonde-link sonde-link-big" href="#" onclick="event.preventDefault();printSkewT();">🖨 Print chart</a>`:'',
     canPlot?`<a class="sonde-link sonde-link-big" href="#" onclick="event.preventDefault();exportSkewTPng();">⬇ Export PNG</a>`:'',
     srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding text data ↗</a>`:''
