@@ -15,7 +15,7 @@ jobs:
       - name: Restore NOAA-first with fallback if needed
         run: |
           set -e
-          if grep -q 'function sondeUrls(dt){ return []; }' index.html; then
+          if grep -F 'sondeUrls(dt){ return []; }' index.html; then
             patch -p1 < patches/restore-sonde-fallback.patch
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
