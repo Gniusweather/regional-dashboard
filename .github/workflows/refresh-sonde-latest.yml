@@ -1,0 +1,40 @@
+name: Refresh NOAA sounding snapshot
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '20 * * * *'
+permissions:
+  contents: write
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch NOAA raw TEMP parts
+        run: |
+          python3 << 'PY'
+          import json, urllib.request
+          from datetime import datetime, timezone
+          from pathlib import Path
+          urls={
+            'TTAA':'https://tgftp.nws.noaa.gov/data/raw/us/usnu01.tncc..txt',
+            'TTBB':'https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt',
+            'PPBB':'https://tgftp.nws.noaa.gov/data/raw/ug/ugnu01.tncc..txt',
+            'TTCC':'https://tgftp.nws.noaa.gov/data/raw/ul/ulnu01.tncc..txt',
+            'TTDD':'https://tgftp.nws.noaa.gov/data/raw/ue/uenu01.tncc..txt',
+            'PPDD':'https://tgftp.nws.noaa.gov/data/raw/uq/uqnu01.tncc..txt',
+          }
+          parts={}
+          for k,u in urls.items():
+              parts[k]=urllib.request.urlopen(u, timeout=30).read().decode('utf-8','replace')
+          out={'fetchedAt':datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),'station':'TNCC','stnm':'78988','parts':parts}
+          Path('sonde-latest.json').write_text(json.dumps(out, ensure_ascii=False))
+          print('wrote', sum(len(v) for v in parts.values()))
+          PY
+      - name: Commit if changed
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add sonde-latest.json
+          git diff --cached --quiet || git commit -m 'Refresh TNCC NOAA TEMP snapshot'
+          git push || true
