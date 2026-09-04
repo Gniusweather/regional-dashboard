@@ -419,14 +419,11 @@ body::after{
   position:relative;border-radius:12px;overflow:hidden;
   border:1px solid var(--border-bright);background:#fff;
   box-shadow:var(--shadow);
-  width:100%;height:920px;display:block;
+  width:100%;height:640px;display:block;background:#e8f4ea;
 }
 .skewt-box canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
-/* A fixed height next to a shrinking phone width made the chart awkwardly
-   tall/narrow (skewTGeom's own indices-column and margin breakpoints
-   already assume a squarer aspect). Shorten it to match. */
-@media(max-width:600px){.skewt-box{height:680px;}}
-@media(max-width:400px){.skewt-box{height:560px;}}
+@media(max-width:600px){.skewt-box{height:520px;}}
+@media(max-width:400px){.skewt-box{height:460px;}}
 /* Labels/names hidden — show only the map image. */
 .windy-lbl{display:none;}
 @media(max-width:960px){.windy-widget{--windy-h:260px;grid-template-columns:1fr 1fr;}}
@@ -4583,7 +4580,7 @@ function skewTGeom(W,H){
   // squeezed into the narrow indices column. Narrower canvases wrap the
   // same text into more, shorter lines, so reserve more of them.
   const summaryLines=W>=700?2:(W>=450?3:4);
-  const pad={l:38+indicesW,r:46,t:12+titleLines*13+summaryLines*11+4,b:22};
+  const pad={l:42,r:52+indicesW,t:12+titleLines*13+4,b:28};
   const plotW=Math.max(10,W-pad.l-pad.r), plotH=Math.max(10,H-pad.t-pad.b);
   const PBOT=1000,PTOP=100,TMIN=-40,TMAX=60;
   const SKEW=plotW/plotH;
@@ -4684,15 +4681,15 @@ function drawSkewT(canvas,profile,meta){
   const prof=(profile||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>b.p-a.p);
 
   ctx.clearRect(0,0,cssW,cssH);
-  ctx.fillStyle='#fff';ctx.fillRect(0,0,cssW,cssH);
+  ctx.fillStyle='#e8f4ea';ctx.fillRect(0,0,cssW,cssH);
 
   ctx.save();
   ctx.beginPath();ctx.rect(g.pad.l,g.pad.t,g.plotW,g.plotH);ctx.clip();
 
   const PLEVELS=[1000,900,800,700,600,500,400,300,200,100];
 
-  // Pressure gridlines — grey solid, like the reference chart.
-  ctx.strokeStyle='rgba(110,110,110,0.55)';ctx.lineWidth=1;
+  // Pressure gridlines — COD-style blue isobars.
+  ctx.strokeStyle='rgba(40,80,180,0.55)';ctx.lineWidth=1;
   PLEVELS.forEach(P=>{
     const y=g.yOf(P);
     ctx.beginPath();ctx.moveTo(g.pad.l,y);ctx.lineTo(g.pad.l+g.plotW,y);ctx.stroke();
@@ -4811,16 +4808,17 @@ function drawSkewT(canvas,profile,meta){
     ctx.fillText(label,cx,midY+0.5);
   });
 
-  // Dewpoint and temperature traces — both black, as on the reference chart
-  // (dewpoint is always the left-hand one).
+  // Dewpoint (green) and temperature (red) — COD / NWS convention.
   if(prof.length>1){
-    ctx.strokeStyle='#000';ctx.lineWidth=2.2;ctx.lineJoin='round';ctx.lineCap='round';
+    ctx.lineWidth=2.2;ctx.lineJoin='round';ctx.lineCap='round';
     const tdPts=prof.filter(r=>r.td!=null);
     if(tdPts.length>1){
+      ctx.strokeStyle='#0a7a28';
       ctx.beginPath();
       tdPts.forEach((r,i)=>{ const x=g.xOf(r.td,r.p),y=g.yOf(r.p); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
       ctx.stroke();
     }
+    ctx.strokeStyle='#d21f1f';
     ctx.beginPath();
     prof.forEach((r,i)=>{ const x=g.xOf(r.t,r.p),y=g.yOf(r.p); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
     ctx.stroke();
@@ -4888,7 +4886,7 @@ function drawSkewT(canvas,profile,meta){
     if(y<g.pad.t||y>g.yBottom||Math.abs(y-lastY)<18)return;
     lastY=y;
     // Parsed speed is m/s; wind barb symbols are always read in knots.
-    drawWindBarb(ctx,barbX,y,r.drct,r.sknt*1.94384,26);
+    drawWindBarb(ctx,barbX,y,r.drct,r.sknt,26);
   });
 
   // Indices panel — left of the pressure/height axis, on the canvas itself
@@ -4908,7 +4906,7 @@ function drawSkewT(canvas,profile,meta){
       const fz=idx.freezingLevel, ft=fz.hgt!=null?fz.hgt*3.28084:null;
       rows.push(['FRZ LVL',ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'kft':Math.round(ft)+'ft'):Math.round(fz.p)+'hPa']);
     }
-    const px=6,pw=g.indicesW-10;
+    const px=g.pad.l+g.plotW+8,pw=g.indicesW-10;
     let py=g.pad.t;
     if(rows.length){
       ctx.strokeStyle='rgba(0,0,0,0.3)';ctx.lineWidth=1;
@@ -5007,7 +5005,7 @@ function drawSkewT(canvas,profile,meta){
   const m=meta||{};
   ctx.fillStyle='#000';ctx.textAlign='left';ctx.textBaseline='alphabetic';
   ctx.font='bold 13px sans-serif';
-  ctx.fillText(m.title||'Skew-T log-P',g.pad.l,15);
+  ctx.fillText(m.title||'TNCC (78988) Sounding',g.pad.l,15);
   if(g.titleLines>=2){
     ctx.font='10px sans-serif';
     ctx.fillText(m.station||'',g.pad.l,28);
@@ -5018,7 +5016,7 @@ function drawSkewT(canvas,profile,meta){
   }
   if(cssW>=380){
     ctx.font='9px sans-serif';ctx.fillStyle='rgba(60,60,60,0.9)';ctx.textAlign='right';
-    ctx.fillText('NOAA raw TEMP · TNCC 78988',g.pad.l+g.plotW,g.H-4);
+    ctx.fillText('NOAA raw TEMP · TNCC 78988 · COD layout',g.pad.l+g.plotW,g.H-4);
   }
 
   // Plain-English summary — same analysis text shown in the HTML card above
