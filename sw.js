@@ -1,5 +1,5 @@
 /* Regional Weather Centre — service worker (app-shell cache, live data passthrough) */
-const CACHE = 'rwc-shell-v9';
+const CACHE = 'rwc-shell-v10';
 const ASSETS = [
   './',
   './index.html',
@@ -30,15 +30,8 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  // Only manage same-origin app-shell assets. Cross-origin weather APIs, proxies,
-  // fonts and map tiles always go straight to the network so data stays live.
   if (url.origin !== location.origin) return;
   e.respondWith(
-    // cache:'no-store' bypasses the browser's own HTTP cache — without this,
-    // a plain reload (not a hard-refresh) could silently be served straight
-    // from local HTTP cache and never reach the network at all, no matter
-    // how "network-first" this handler looks. That's what was making pushed
-    // changes not show up on a normal reload.
     fetch(req, { cache: 'no-store' })
       .then(res => {
         const copy = res.clone();
@@ -49,7 +42,6 @@ self.addEventListener('fetch', e => {
   );
 });
 
-// Focus (or open) the app when a notification is tapped.
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   e.waitUntil(
@@ -60,8 +52,6 @@ self.addEventListener('notificationclick', e => {
   );
 });
 
-// Background push — fires even when the app is fully closed, as long as the
-// service worker is still registered (sent by push-worker/, not the page).
 self.addEventListener('push', e => {
   let data = {};
   try { data = e.data ? e.data.json() : {}; } catch (err) { data = { title: 'Regional Weather Centre', body: e.data ? e.data.text() : '' }; }
