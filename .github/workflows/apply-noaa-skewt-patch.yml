@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - patches/synop-cycle.patch
+      - patches/island-avg.patch
       - .github/workflows/apply-noaa-skewt-patch.yml
 permissions:
   contents: write
@@ -12,16 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Lock Maps SYNOP to sounding 00Z/12Z
+      - name: Add island average tile
         run: |
           set -e
-          if grep -F 'let latestRep=null' index.html; then
-            patch -p1 < patches/synop-cycle.patch
+          if grep -F "else label='☁ '+Math.round(cl.baseP)+'hPa'" index.html || grep -F 'function renderStationsList' index.html && ! grep -F 'islandAverageRow' index.html; then
+            patch -p1 < patches/island-avg.patch
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add index.html
-            git commit -m 'SYNOP only at same 00Z/12Z cycle as the Skew-T'
+            git commit -m 'Add Island average tile; Skew-T cloud labels in feet'
             git push
           else
-            echo 'cycle lock already applied'
+            echo 'already applied'
           fi
