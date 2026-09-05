@@ -131,7 +131,8 @@ function parseTempAA(text,high){
   }
   while(i<groups.length){
     if(groups[i].startsWith('88') && groups[i]!=='88999'){
-      const p=parseInt(groups[i].slice(2),10);
+      let p=parseInt(groups[i].slice(2),10);
+      if(high && p>150) p=p/10;
       const t=groups[i+1]?sondeTempT(groups[i+1].slice(0,3)):null;
       const dd=groups[i+1]?sondeTempDD(groups[i+1].slice(3,5)):null;
       const w=groups[i+2]?sondeTempWind(groups[i+2]):{drct:null,sknt:null};
@@ -144,13 +145,18 @@ function parseTempAA(text,high){
   return map;
 }
 function parseTempBB(text,high){
-  const groups=sondeTempGroups(text);
+  const groups=sondeTempGroups(text).filter(g=>g!=='78988');
   const map=new Map();
   let i=0;
-  while(i<groups.length){
-    const nn=groups[i].slice(0,2);
-    if(/^\d\d$/.test(nn) && parseInt(nn,10)%11===0) break;
-    i++;
+  const startRe=high?/^11\d{3}$/:/^00\d{3}$/;
+  while(i<groups.length && !startRe.test(groups[i])) i++;
+  if(i>=groups.length){
+    i=0;
+    while(i<groups.length){
+      const nn=groups[i].slice(0,2);
+      if(/^\d\d$/.test(nn) && parseInt(nn,10)%11===0 && groups[i].slice(0,2)!=='55') break;
+      i++;
+    }
   }
   while(i+1<groups.length){
     const g=groups[i];
@@ -198,8 +204,14 @@ function parseNoaaTempParts(parts){
   for(const m of maps){
     for(const [k,v] of m) sondeTempMergeLevel(merged,k,v);
   }
-  const profile=[...merged.values()].filter(lv=>lv.t!=null&&lv.p>=50&&lv.p<=1100)
-    .sort((a,b)=>b.p-a.p);
+  const profile=[...merged.values()].filter(lv=>{
+      if(lv.t==null||!(lv.p>=50&&lv.p<=1100)) return false;
+      if(lv.t>45||lv.t<-90) return false;
+      if(lv.p>=850 && lv.t<-5) return false;
+      if(lv.p>=700 && lv.t<-20) return false;
+      if(lv.p>=400 && lv.t<-50) return false;
+      return true;
+    }).sort((a,b)=>b.p-a.p);
   if(profile.length<8) return null;
   const meta=sondeTempHeaderMeta(parts.TTAA||parts.TTBB||'');
   let obsTime=null, dt=null;
