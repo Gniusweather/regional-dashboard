@@ -1182,6 +1182,10 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
 .stations-grid{
   display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px;
 }
+.station-card.is-avg{
+  border-color:rgba(80,180,220,0.45);
+  background:linear-gradient(145deg,rgba(10,40,70,0.98),rgba(6,24,48,0.98));
+}
 .station-card{
   border-radius:14px;
   background:linear-gradient(145deg,rgba(8,28,54,0.97),rgba(4,16,34,0.97));
@@ -4206,6 +4210,37 @@ function addMarkersToMap(rows){
   });
 }
 
+function stationDirText(deg){
+  if(deg==null||!isFinite(deg)) return '—';
+  const pts=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  return pts[Math.round(((deg%360)+360)%360/22.5)%16];
+}
+function islandAverageRow(rows){
+  const live=rows.filter(r=>r && !((typeof evaluateStation==='function')&&evaluateStation(r).isStale));
+  const src=live.length?live:rows;
+  const nums=key=>{
+    const a=src.map(r=>r[key]).filter(v=>v!=null&&isFinite(Number(v))).map(Number);
+    return a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+  };
+  const degs=src.map(r=>r.wind_direction_deg).filter(v=>v!=null&&isFinite(Number(v))).map(Number);
+  let dir=null;
+  if(degs.length){
+    let x=0,y=0;
+    degs.forEach(d=>{const r=d*Math.PI/180;x+=Math.cos(r);y+=Math.sin(r);});
+    dir=(Math.atan2(y,x)*180/Math.PI+360)%360;
+  }
+  return {
+    station:'Island average',
+    temperature_c:nums('temperature_c'),
+    heat_index_c:nums('heat_index_c'),
+    humidity_percent:nums('humidity_percent')!=null?Math.round(nums('humidity_percent')):null,
+    wind_speed_knots:nums('wind_speed_knots')!=null?Math.round(nums('wind_speed_knots')*10)/10:null,
+    wind_direction_deg:dir!=null?Math.round(dir):null,
+    wind_direction_text:stationDirText(dir),
+    rain_today_mm:nums('rain_today_mm')!=null?Math.round(nums('rain_today_mm')*10)/10:null,
+    last_updated:'Avg of '+src.length+' station'+(src.length===1?'':'s')
+  };
+}
 function renderStationsList(rows){
   const list=el('stationsList');
   if(!rows.length){list.className='';list.innerHTML='<div style="padding:20px;color:var(--muted);font-family:var(--cond);letter-spacing:1px;text-transform:uppercase;font-size:14px;">No stations available</div>';return;}
@@ -4261,6 +4296,43 @@ function renderStationsList(rows){
       <div class="sc-footer">${escapeHtml(r.last_updated||'—')}</div>
     </div>`;
   }).join('');
+  if(rows.length){
+    const avg=islandAverageRow(rows);
+    const tempNum=avg.temperature_c!==null?avg.temperature_c.toFixed(1):null;
+    const hiNum=avg.heat_index_c!==null?avg.heat_index_c.toFixed(1):null;
+    const windKn=avg.wind_speed_knots;
+    const windDeg=avg.wind_direction_deg;
+    const rose=windRoseSvg(windDeg,windKn);
+    const wColor=windSpeedColor(windKn);
+    const tColor=tempColorCode(avg.temperature_c);
+    const hColor=humidColorCode(avg.humidity_percent);
+    const rColor=rainColorCode(avg.rain_today_mm);
+    const hiColor=tempColorCode(avg.heat_index_c);
+    list.innerHTML+=`<div class="station-card is-avg" style="--card-accent:${wColor}">
+      <div class="sc-header">
+        <div class="sc-name">Island average</div>
+        <span class="sc-badge fresh">AVG</span>
+      </div>
+      <div class="sc-main">
+        <div class="sc-temp-block">
+          <span class="sc-temp-val" style="color:${tColor}">${tempNum!==null?tempNum:'—'}</span>
+          <span class="sc-temp-unit">${tempNum!==null?' °C':''}</span>
+        </div>
+        ${rose}
+        <div class="sc-wind-block">
+          <div class="sc-wind-spd" style="color:${wColor}">${windKn!==null?windKn:'—'}</div>
+          <div class="sc-wind-lbl">${windKn!==null?(avg.wind_direction_text||'')+' · kn':''}</div>
+        </div>
+      </div>
+      <div class="sc-grid">
+        <div class="sc-metric"><span class="sc-metric-lbl">Feels like</span><span class="sc-metric-val" style="color:${hiColor}">${hiNum!==null?hiNum+'°':'—'}</span></div>
+        <div class="sc-metric"><span class="sc-metric-lbl">Humidity</span><span class="sc-metric-val" style="color:${hColor}">${avg.humidity_percent!=null?avg.humidity_percent+'%':'—'}</span></div>
+        <div class="sc-metric"><span class="sc-metric-lbl">Dir</span><span class="sc-metric-val">${windDeg!==null?windDeg+'°':'—'}</span></div>
+        <div class="sc-metric"><span class="sc-metric-lbl">Rain</span><span class="sc-metric-val" style="color:${rColor}">${avg.rain_today_mm!=null?avg.rain_today_mm+' mm':'—'}</span></div>
+      </div>
+      <div class="sc-footer">${escapeHtml(avg.last_updated)}</div>
+    </div>`;
+  }
   el('totalCount').textContent=rows.length;
   el('alertCount').textContent=alertCount;
   el('staleCount').textContent=staleCount;
@@ -4801,7 +4873,17 @@ function drawSkewT(canvas,profile,meta){
       const fmt=v=>useK?(v/1000).toFixed(1)+'k':String(Math.round(v));
       const bs=fmt(baseFt),ts=fmt(topFt);
       label='☁ '+(bs===ts?bs+'ft':bs+'–'+ts+'ft');
-    } else label='☁ '+Math.round(cl.baseP)+'hPa';
+    } else {
+      const p2ft=p=>{
+        const x=Math.pow(Math.max(50,p)/1013.25,0.190284);
+        return (1-x)*145366.45;
+      };
+      const baseFt=p2ft(cl.baseP), topFt=p2ft(cl.topP||cl.baseP);
+      const useK=Math.max(baseFt,topFt)>=1000;
+      const fmt=v=>useK?(v/1000).toFixed(1)+'k':String(Math.round(v));
+      const bs=fmt(baseFt),ts=fmt(topFt);
+      label='☁ '+(bs===ts?bs+'ft':bs+'–'+ts+'ft');
+    }
     ctx.font='bold 11.5px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
     const tw=ctx.measureText(label).width;
     ctx.fillStyle='rgba(255,255,255,0.88)';
