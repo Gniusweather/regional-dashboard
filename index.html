@@ -4308,7 +4308,7 @@ function renderStationsList(rows){
     const hColor=humidColorCode(avg.humidity_percent);
     const rColor=rainColorCode(avg.rain_today_mm);
     const hiColor=tempColorCode(avg.heat_index_c);
-    list.innerHTML+=`<div class="station-card is-avg" style="--card-accent:${wColor}">
+    list.innerHTML=`<div class="station-card is-avg" style="--card-accent:${wColor}">
       <div class="sc-header">
         <div class="sc-name">Island average</div>
         <span class="sc-badge fresh">AVG</span>
@@ -4331,7 +4331,7 @@ function renderStationsList(rows){
         <div class="sc-metric"><span class="sc-metric-lbl">Rain</span><span class="sc-metric-val" style="color:${rColor}">${avg.rain_today_mm!=null?avg.rain_today_mm+' mm':'—'}</span></div>
       </div>
       <div class="sc-footer">${escapeHtml(avg.last_updated)}</div>
-    </div>`;
+    </div>`+list.innerHTML;
   }
   el('totalCount').textContent=rows.length;
   el('alertCount').textContent=alertCount;
@@ -4623,7 +4623,13 @@ function sondeFreezingLevel(profile){
     if((a.t<=0&&b.t>=0)||(a.t>=0&&b.t<=0)){
       const f=(0-a.t)/((b.t-a.t)||1e-9);
       const p=a.p+(b.p-a.p)*f;
-      const hgt=(a.hgt!=null&&b.hgt!=null)?a.hgt+(b.hgt-a.hgt)*f:null;
+      let hgt=(a.hgt!=null&&b.hgt!=null)?a.hgt+(b.hgt-a.hgt)*f:null;
+      if(hgt==null){
+        let lo=null,hi=null;
+        for(let k=i;k>=0;k--) if(prof[k].hgt!=null){lo=prof[k];break;}
+        for(let k=i+1;k<prof.length;k++) if(prof[k].hgt!=null){hi=prof[k];break;}
+        if(lo&&hi&&lo.p!==hi.p) hgt=lo.hgt+(hi.hgt-lo.hgt)*(Math.log(p/lo.p)/Math.log(hi.p/lo.p));
+      }
       return {p,hgt};
     }
   }
@@ -4987,8 +4993,9 @@ function drawSkewT(canvas,profile,meta){
     if(idx.tt!=null)rows.push(['TT',idx.tt.toFixed(0)+(trendGlyph[tr.tt]||'')]);
     if(idx.pw!=null)rows.push(['PW',idx.pw.toFixed(0)+' mm'+(trendGlyph[tr.pw]||'')]);
     if(idx.freezingLevel){
-      const fz=idx.freezingLevel, ft=fz.hgt!=null?fz.hgt*3.28084:null;
-      rows.push(['FRZ LVL',ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'kft':Math.round(ft)+'ft'):Math.round(fz.p)+'hPa']);
+      const fz=idx.freezingLevel;
+      const ft=fz.hgt!=null?fz.hgt*3.28084:(fz.p!=null?(1-Math.pow(Math.max(50,fz.p)/1013.25,0.190284))*145366.45:null);
+      rows.push(['FRZ LVL',ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'kft':Math.round(ft)+'ft'):'—']);
     }
     const px=6,pw=g.indicesW-10;
     let py=g.pad.t;
@@ -5793,9 +5800,9 @@ function renderRadiosonde(opts){
   const history=sondeHistoryUpdate(cycleIso,{cape:capeV,cin:cinV,li:liV,k:kV,tt:ttV,pw:pwV});
   let tiles=sondeTilesHtml(ind,trend,history);
   if(freezingLevel){
-    const ft=freezingLevel.hgt!=null?freezingLevel.hgt*3.28084:null;
-    const val=ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'k':Math.round(ft)):Math.round(freezingLevel.p);
-    const unit=ft!=null?'ft':'hPa';
+    const ft=freezingLevel.hgt!=null?freezingLevel.hgt*3.28084:(freezingLevel.p!=null?(1-Math.pow(Math.max(50,freezingLevel.p)/1013.25,0.190284))*145366.45:null);
+    const val=ft!=null?(ft>=1000?(ft/1000).toFixed(1)+'k':Math.round(ft)):'—';
+    const unit='ft';
     tiles+=`<div class="knmi-tile"><div class="knmi-tile-lbl">Freezing Level</div><div class="knmi-tile-val">${val} <small>${unit}</small></div></div>`;
   }
   const box=`<div class="forecast-box"><div class="forecast-icon">${a.icon}</div><div class="forecast-body">`+
