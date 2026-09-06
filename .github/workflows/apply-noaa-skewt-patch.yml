@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - patches/island-avg.patch
+      - patches/avg-first-frz-ft.patch
       - .github/workflows/apply-noaa-skewt-patch.yml
 permissions:
   contents: write
@@ -12,16 +12,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Add island average tile
+      - name: Average tile first; FRZ in feet
         run: |
           set -e
-          if grep -F "else label='☁ '+Math.round(cl.baseP)+'hPa'" index.html || grep -F 'function renderStationsList' index.html && ! grep -F 'islandAverageRow' index.html; then
-            patch -p1 < patches/island-avg.patch
+          if grep -F 'list.innerHTML+=`\<div class="station-card is-avg"' index.html || grep -F "list.innerHTML+=`<div class=\"station-card is-avg\"" index.html || grep -F 'list.innerHTML+=`<div class="station-card is-avg"' index.html; then
+            patch -p1 < patches/avg-first-frz-ft.patch
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add index.html
-            git commit -m 'Add Island average tile; Skew-T cloud labels in feet'
+            git commit -m 'Put Island average first; show freezing level in feet'
             git push
           else
-            echo 'already applied'
+            echo 'checking simpler grep'
+            if grep -n 'station-card is-avg' index.html | head; then
+              if grep -F 'list.innerHTML+=' index.html | grep -q is-avg || grep -n 'innerHTML+=' index.html | head; then
+                patch -p1 < patches/avg-first-frz-ft.patch || true
+                git config user.name 'github-actions[bot]'
+                git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+                git add index.html
+                git diff --cached --quiet || git commit -m 'Put Island average first; show freezing level in feet'
+                git push || true
+              fi
+            fi
           fi
