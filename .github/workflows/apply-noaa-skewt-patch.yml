@@ -11,21 +11,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fix mirror dt fallback
+      - name: Windy particles off + desktop height
         run: |
-          python3 - <<'PY'
+          python3 << 'PY'
           from pathlib import Path
-          p=Path('sonde-noaa.js')
+          p=Path('index.html')
           t=p.read_text()
-          t2=t.replace('return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||new Date()};','return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||null};')
-          # drop unused leftover
-          i=t2.find('async function sondeFetchNoaaRaw_UNUSED')
-          if i>0: t2=t2[:i].rstrip()+'\n'
+          t2=t.replace('particlesAnim=off','particlesAnim=off&particles=off')
+          old='.windy-widget{display:grid;grid-template-columns:1fr 1fr;gap:10px;--windy-h:340px;}'
+          new=old+'''\n@media(min-width:1000px){\n  .windy-widget{--windy-h:420px;gap:14px;}\n  .windy-widget-header{--windy-h:400px;}\n}\n@media(min-width:1400px){\n  .windy-widget{--windy-h:500px;gap:16px;}\n  .windy-widget-header{--windy-h:460px;}\n}'''
+          if old in t2 and '@media(min-width:1000px)' not in t2[t2.find('.windy-widget'):t2.find('.windy-widget')+400]:
+              t2=t2.replace(old,new,1)
           p.write_text(t2)
-          print('changed', t!=t2)
+          print('particles', t2.count('particles=off'), 'desktop', 'min-width:1000px' in t2)
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add sonde-noaa.js
-          git diff --cached --quiet || git commit -m 'Score NOAA mirror by sounding time, not fetch clock'
+          git add index.html
+          git diff --cached --quiet || git commit -m 'Turn off Windy wind particles; larger desktop map windows'
           git push
