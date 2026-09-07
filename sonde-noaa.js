@@ -235,7 +235,7 @@ async function sondeFetchLocalMirror(){
     const parsed=parseNoaaTempParts(j.parts);
     if(!parsed) return null;
     parsed.source='NOAA tgftp raw TEMP (TTAA/TTBB/TTCC/TTDD)';
-    return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||new Date()};
+    return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||null};
   }catch(e){ return null; }
 }
 async function sondeFetchLiveNoaa(){
@@ -258,17 +258,4 @@ async function sondeFetchNoaaRaw(){
   if(score(live)>=score(local) && live) return live;
   if(local) return local;
   return live;
-}
-async function sondeFetchNoaaRaw_UNUSED(){
-  const local=await sondeFetchLocalMirror();
-  if(false && local) return local;
-  const entries=Object.entries(SONDE_NOAA_RAW);
-  const settled=await Promise.allSettled(entries.map(([,url])=>sondeFetchOneNoaa(url)));
-  const parts={};
-  entries.forEach(([k],i)=>{ if(settled[i].status==='fulfilled') parts[k]=settled[i].value; });
-  if(!parts.TTAA && !parts.TTBB) return null;
-  const parsed=parseNoaaTempParts(parts);
-  if(!parsed) return null;
-  parsed.source='NOAA tgftp raw TEMP (live)';
-  return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||((typeof sondeCycles==='function'&&sondeCycles()[0])||new Date())};
 }
