@@ -1,0 +1,14 @@
+--- a/index.html
++++ b/index.html
+@@ -4863,11 +4863,6 @@
+   // a glance instead of something you have to go looking for.
+   sondeCloudLayers(profile).forEach(cl=>{
+     const yBase=g.yOf(cl.baseP), yTop=g.yOf(cl.topP);
+-    const h=Math.max(1.5,yBase-yTop);
+-    ctx.fillStyle='rgba(80,125,185,0.4)';
+-    ctx.fillRect(g.pad.l,yTop,g.plotW,h);
+-    ctx.strokeStyle='rgba(45,85,135,0.65)';ctx.lineWidth=1.2;
+-    ctx.strokeRect(g.pad.l,yTop,g.plotW,h);
+     const midY=(yBase+yTop)/2;
+     const cx=g.pad.l+g.plotW/2;
+     let label;
