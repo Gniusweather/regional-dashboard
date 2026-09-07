@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - patches/avg-first-frz-ft.patch
+      - patches/no-cloud-bar.patch
       - .github/workflows/apply-noaa-skewt-patch.yml
 permissions:
   contents: write
@@ -12,16 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply patch
+      - name: Remove cloud bars
         run: |
           set -e
-          grep -n 'station-card is-avg' index.html | head
-          if grep -F 'list.innerHTML+=`' index.html | grep -q is-avg; then
-            echo MATCH_PLUS_EQ
+          if grep -F "ctx.fillRect(g.pad.l,yTop,g.plotW,h);" index.html; then
+            patch -p1 < patches/no-cloud-bar.patch
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add index.html
+            git commit -m 'Skew-T: cloud icon and feet only, no blue layer bar'
+            git push
+          else
+            echo already applied
           fi
-          patch -p1 --forward < patches/avg-first-frz-ft.patch || patch -p1 < patches/avg-first-frz-ft.patch
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html
-          git diff --cached --quiet && echo NOCHANGE || git commit -m 'Put Island average first; show freezing level in feet'
-          git push
