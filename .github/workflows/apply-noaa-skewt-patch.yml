@@ -3,7 +3,6 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - patches/no-cloud-bar.patch
       - .github/workflows/apply-noaa-skewt-patch.yml
 permissions:
   contents: write
@@ -12,16 +11,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Remove cloud bars
+      - name: Prefer newest live NOAA sounding
         run: |
-          set -e
-          if grep -F "ctx.fillRect(g.pad.l,yTop,g.plotW,h);" index.html; then
-            patch -p1 < patches/no-cloud-bar.patch
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add index.html
-            git commit -m 'Skew-T: cloud icon and feet only, no blue layer bar'
-            git push
-          else
-            echo already applied
-          fi
+          python3 << 'PY'
+          from pathlib import Path
+          p=Path('sonde-noaa.js')
+          t=p.read_text()
+          old='''async function sondeFetchNoaaRaw(){\n  const local=await sondeFetchLocalMirror();\n  if(local) return local;'''
+          if 'sondeFetchLiveNoaa' not in t and old in t:
+              t=t.replace(old, '''async function sondeFetchLiveNoaa(){\n  const entries=Object.entries(SONDE_NOAA_RAW);\n  const settled=await Promise.allSettled(entries.map(([,url])=>sondeFetchOneNoaa(url)));\n  const parts={};\n  entries.forEach(([k],i)=>{ if(settled[i].status===\'fulfilled\') parts[k]=settled[i].value; });\n  if(!parts.TTAA && !parts.TTBB) return null;\n  const parsed=parseNoaaTempParts(parts);\n  if(!parsed) return null;\n  parsed.source=\'NOAA tgftp raw TEMP (live)\';\n  return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||null};\n}\nasync function sondeFetchNoaaRaw(){\n  const [live,local]=await Promise.all([\n    sondeFetchLiveNoaa().catch(()=>null),\n    sondeFetchLocalMirror().catch(()=>null)\n  ]);\n  const score=o=>{ if(!o||!o.parsed) return -1; const t=o.dt?o.dt.getTime():0; return isFinite(t)?t:0; };\n  if(score(live)>=score(local) && live) return live;\n  if(local) return local;\n  return live;\n}\nasync function sondeFetchNoaaRaw_UNUSED(){\n  const local=await sondeFetchLocalMirror();\n  if(false && local) return local;''')
+              p.write_text(t)
+              print('patched sonde-noaa.js')
+          else:
+              print('sonde-noaa already patched or anchor missing', 'live' in t, old in t)
+          idx=Path('index.html')
+          it=idx.read_text()
+          it2=it.replace("const SONDE_CACHE_KEY='sonde-cache-v3-noaa';", "const SONDE_CACHE_KEY='sonde-cache-v4-noaa';")
+          if it2!=it:
+              idx.write_text(it2)
+              print('bumped cache key')
+          else:
+              print('cache key already v4 or missing')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add sonde-noaa.js index.html
+          git diff --cached --quiet || git commit -m 'Use newest live NOAA raw files for Skew-T, not stale mirror'
+          git push
