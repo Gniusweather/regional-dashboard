@@ -11,22 +11,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Windy particles off + desktop height
+      - name: Pin Windy embeds to p:off
         run: |
           python3 << 'PY'
           from pathlib import Path
+          import re
           p=Path('index.html')
           t=p.read_text()
-          t2=t.replace('particlesAnim=off','particlesAnim=off&particles=off')
-          old='.windy-widget{display:grid;grid-template-columns:1fr 1fr;gap:10px;--windy-h:340px;}'
-          new=old+'''\n@media(min-width:1000px){\n  .windy-widget{--windy-h:420px;gap:14px;}\n  .windy-widget-header{--windy-h:400px;}\n}\n@media(min-width:1400px){\n  .windy-widget{--windy-h:500px;gap:16px;}\n  .windy-widget-header{--windy-h:460px;}\n}'''
-          if old in t2 and '@media(min-width:1000px)' not in t2[t2.find('.windy-widget'):t2.find('.windy-widget')+400]:
-              t2=t2.replace(old,new,1)
+          def fix(m):
+              u=m.group(0)
+              u=u.replace('&particles=off','')
+              u=u.split('#')[0]
+              z=re.search(r'zoom=(\d+)', u)
+              zoom=z.group(1) if z else '7'
+              if 'particlesAnim=off' not in u:
+                  u+=('&' if '?' in u else '?')+'particlesAnim=off'
+              return u+f'#12.350,-69.150,{zoom},p:off'
+          t2=re.sub(r'https://embed\.windy\.com/embed2\.html[^"\']+', fix, t)
+          # also force reload of lazy iframes when maps open
+          old="f.setAttribute('src', f.getAttribute('data-src'));"
+          new="f.setAttribute('src', f.getAttribute('data-src'));"
           p.write_text(t2)
-          print('particles', t2.count('particles=off'), 'desktop', 'min-width:1000px' in t2)
+          print('urls', len(re.findall(r'p:off', t2)))
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html
-          git diff --cached --quiet || git commit -m 'Turn off Windy wind particles; larger desktop map windows'
+          git diff --cached --quiet || git commit -m 'Disable Windy particles with p:off URL hash on every embed'
           git push
