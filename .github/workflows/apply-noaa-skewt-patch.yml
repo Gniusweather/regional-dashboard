@@ -11,23 +11,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Ventusky wind no particles
+      - name: Ventusky wind GFS
         run: |
           python3 << 'PY'
           from pathlib import Path
           p=Path('index.html')
           t=p.read_text()
-          old='https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=7&level=surface&overlay=wind&product=aromeAntilles&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off#12.350,-69.150,7,p:off'
-          new='https://embed.ventusky.com/?p=12.35;-69.15;7&l=wind&m=harmonie_car&w=off&lang=en'
+          old='https://embed.ventusky.com/?p=12.35;-69.15;7&l=wind&m=harmonie_car&w=off&lang=en'
+          new='https://embed.ventusky.com/?p=12.35;-69.15;7&l=wind&m=gfs&w=off&lang=en'
           print('found', t.count(old))
           t=t.replace(old,new)
-          t=t.replace('Windy wind \u2014 ABC islands','Ventusky wind \u2014 ABC islands')
-          t=t.replace('Windy wind — ABC islands','Ventusky wind — ABC islands')
-          t=t.replace('💨 Wind · ABC','💨 Wind · Ventusky')
           p.write_text(t)
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html
-          git diff --cached --quiet || git commit -m 'Replace Windy wind map with Ventusky wind (particles off)'
+          git diff --cached --quiet || git commit -m 'Ventusky wind map uses GFS (HARMONIE has no wind)'
           git push
