@@ -11,35 +11,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Swap Windy iframes to Ventusky no-wind-anim
+      - name: Restore Windy except dust
         run: |
           python3 << 'PY'
           from pathlib import Path
-          import re
           p=Path('index.html')
           t=p.read_text()
-          def vent(layer, zoom):
-              return f'https://embed.ventusky.com/?p=12.35;-69.15;{zoom}&l={layer}&w=off&lang=en'
-          def repl(m):
-              u=m.group(0)
-              ov=re.search(r'overlay=([^&#]+)', u)
-              z=re.search(r'zoom=(\d+)', u)
-              overlay=(ov.group(1) if ov else 'rain')
-              zoom=z.group(1) if z else '7'
-              layer={
-                'satellite':'satellite',
-                'radar':'radar',
-                'rain':'rain-1h',
-                'dustsm':'dust',
-                'wind':'wind',
-              }.get(overlay,'rain-1h')
-              return vent(layer, zoom)
-          t2,n=re.subn(r'https://embed\.windy\.com/embed2\.html[^"\']+', repl, t)
-          print('replaced', n)
-          p.write_text(t2)
+          pairs=[
+            ('https://embed.ventusky.com/?p=12.35;-69.15;8&l=satellite&w=off&lang=en',
+             'https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=8&level=surface&overlay=satellite&product=satellite&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off#12.350,-69.150,8,p:off'),
+            ('https://embed.ventusky.com/?p=12.35;-69.15;8&l=radar&w=off&lang=en',
+             'https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=8&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off#12.350,-69.150,8,p:off'),
+            ('https://embed.ventusky.com/?p=12.35;-69.15;7&l=rain-1h&w=off&lang=en',
+             'https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=7&level=surface&overlay=rain&product=aromeAntilles&menu=&message=&marker=&calendar=&pressure=true&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off#12.350,-69.150,7,p:off'),
+            ('https://embed.ventusky.com/?p=12.35;-69.15;7&l=wind&w=off&lang=en',
+             'https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=7&level=surface&overlay=wind&product=aromeAntilles&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off#12.350,-69.150,7,p:off'),
+          ]
+          for a,b in pairs:
+              c=t.count(a)
+              t=t.replace(a,b)
+              print(a[40:70], c)
+          t=t.replace('Windy dust mass \u2014 ABC islands','Ventusky dust \u2014 ABC islands')
+          t=t.replace('Windy dust mass — ABC islands','Ventusky dust — ABC islands')
+          Path('index.html').write_text(t)
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html
-          git diff --cached --quiet || git commit -m 'Replace Windy embeds with Ventusky (wind animation off)'
+          git diff --cached --quiet || git commit -m 'Restore Windy satellite/radar/rain/wind; keep Ventusky dust'
           git push
