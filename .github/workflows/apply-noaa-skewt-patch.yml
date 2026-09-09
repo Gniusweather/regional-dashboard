@@ -11,31 +11,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: B&W A4 landscape print Skew-T
+      - name: Swap Windy iframes to Ventusky no-wind-anim
         run: |
           python3 << 'PY'
           from pathlib import Path
+          import re
           p=Path('index.html')
           t=p.read_text()
-          t=t.replace('function drawSkewT(canvas,profile,meta){','function drawSkewT(canvas,profile,meta,opt){',1)
-          t=t.replace("ctx.fillStyle='#e8f4ea';ctx.fillRect(0,0,cssW,cssH);","ctx.fillStyle=(opt&&opt.bw)?'#ffffff':'#e8f4ea';ctx.fillRect(0,0,cssW,cssH);",1)
-          old='''function printSkewT(){\n  const url=skewtHiResDataUrl();\n  if(!url) return;\n  const w=window.open('','_blank');\n  if(!w) return; // popup blocked \u2014 nothing we can do without a user gesture retry\n  w.document.write(`<!doctype html><html><head><title>Skew-T \u2014 TNCC 78988</title></head>`+\n    `<body style="margin:0;text-align:center;"><img src="${url}" style="max-width:100%;" onload="window.print()"></body></html>`);\n  w.document.close();\n}'''
-          new='''function printSkewT(){\n  if(!__skewtLast) return;\n  const tmp=document.createElement('canvas');\n  tmp.style.position='fixed';tmp.style.left='-99999px';\n  tmp.style.width='2339px';tmp.style.height='1654px';\n  document.body.appendChild(tmp);\n  drawSkewT(tmp,__skewtLast.profile,__skewtLast.meta,{bw:true});\n  const c=tmp.getContext('2d');\n  try{\n    const img=c.getImageData(0,0,tmp.width,tmp.height), d=img.data;\n    for(let i=0;i<d.length;i+=4){\n      let y=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];\n      y=y>210?255:(y<40?0:Math.round((y-40)*255/170));\n      d[i]=d[i+1]=d[i+2]=y;\n    }\n    c.putImageData(img,0,0);\n  }catch(e){}\n  const url=tmp.toDataURL('image/png');\n  document.body.removeChild(tmp);\n  const title=((__skewtLast.meta&&(__skewtLast.meta.obsTime||__skewtLast.meta.title))||'TNCC 78988');\n  const w=window.open('','_blank');\n  if(!w) return;\n  w.document.write(`<!doctype html><html><head><title>Skew-T — ${title}</title>\n<style>\n@page{size:A4 landscape;margin:8mm;}\nhtml,body{margin:0;padding:0;background:#fff;height:100%;}\n.wrap{width:281mm;height:194mm;display:flex;flex-direction:column;align-items:stretch;justify-content:center;}\nh1{font:700 11pt/1.2 Arial,sans-serif;margin:0 0 3mm;color:#000;text-align:center;}\nimg{width:100%;height:auto;max-height:180mm;object-fit:contain;display:block;filter:grayscale(1) contrast(1.15);}\n</style></head><body>\n<div class="wrap"><h1>Skew-T / Log-P — TNCC 78988 — ${title}</h1>\n<img src="${url}" alt="Skew-T" onload="setTimeout(function(){window.print()},80)"></div>\n</body></html>`);\n  w.document.close();\n}'''
-          if old not in t:
-              print('OLD PRINT NOT FOUND')
-              # try loose replace of function body start
-              import re
-              t2,n=re.subn(r'function printSkewT\\(\\)\\{[\\s\\S]*?^}', new, t, count=1, flags=re.M)
-              print('regex n', n)
-              if n: t=t2
-          else:
-              t=t.replace(old,new,1)
-              print('replaced exact')
-          p.write_text(t)
-          print('bw fill', "opt&&opt.bw" in t, 'A4 landscape' in t)
+          def vent(layer, zoom):
+              return f'https://embed.ventusky.com/?p=12.35;-69.15;{zoom}&l={layer}&w=off&lang=en'
+          def repl(m):
+              u=m.group(0)
+              ov=re.search(r'overlay=([^&#]+)', u)
+              z=re.search(r'zoom=(\d+)', u)
+              overlay=(ov.group(1) if ov else 'rain')
+              zoom=z.group(1) if z else '7'
+              layer={
+                'satellite':'satellite',
+                'radar':'radar',
+                'rain':'rain-1h',
+                'dustsm':'dust',
+                'wind':'wind',
+              }.get(overlay,'rain-1h')
+              return vent(layer, zoom)
+          t2,n=re.subn(r'https://embed\.windy\.com/embed2\.html[^"\']+', repl, t)
+          print('replaced', n)
+          p.write_text(t2)
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html
-          git diff --cached --quiet || git commit -m 'Print Skew-T in black and white on A4 landscape'
+          git diff --cached --quiet || git commit -m 'Replace Windy embeds with Ventusky (wind animation off)'
           git push
