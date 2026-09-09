@@ -11,25 +11,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fix Ventusky wind layer id
+      - name: Ventusky wind knots
         run: |
           python3 << 'PY'
           from pathlib import Path
           p=Path('index.html')
           t=p.read_text()
-          old='https://embed.ventusky.com/?p=12.35;-69.15;7&l=wind&m=gfs&w=off&lang=en'
-          new='https://embed.ventusky.com/?p=12.35;-69.15;7&l=wind-10m&m=gfs&w=off&lang=en'
-          print('found exact', t.count(old))
-          if t.count(old)==0:
-              t=t.replace('l=wind&m=gfs','l=wind-10m&m=gfs')
-              t=t.replace('l=wind&m=harmonie_car','l=wind-10m&m=gfs')
-          else:
-              t=t.replace(old,new)
-          print('now', t.count('l=wind-10m'))
+          old='https://embed.ventusky.com/?p=12.35;-69.15;7&l=wind-10m&m=gfs&w=off&lang=en'
+          new='https://embed.ventusky.com/?p=12.35;-69.15;7&l=wind-10m&m=gfs&w=off&lang=en&units=kt&u=kt'
+          print('found', t.count(old))
+          t=t.replace(old,new)
           p.write_text(t)
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html
-          git diff --cached --quiet || git commit -m 'Ventusky wind uses wind-10m layer (not temperature default)'
+          git diff --cached --quiet || git commit -m 'Ventusky wind embed requests knots'
           git push
