@@ -11,20 +11,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Ventusky wind knots
+      - name: Windy wind in knots
         run: |
           python3 << 'PY'
           from pathlib import Path
           p=Path('index.html')
           t=p.read_text()
-          old='https://embed.ventusky.com/?p=12.35;-69.15;7&l=wind-10m&m=gfs&w=off&lang=en'
-          new='https://embed.ventusky.com/?p=12.35;-69.15;7&l=wind-10m&m=gfs&w=off&lang=en&units=kt&u=kt'
+          old='https://embed.ventusky.com/?p=12.35;-69.15;7&l=wind-10m&m=gfs&w=off&lang=en&units=kt&u=kt'
+          new='https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=7&level=surface&overlay=wind&product=ecmwf&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off#12.350,-69.150,7,p:off'
           print('found', t.count(old))
-          t=t.replace(old,new)
+          if t.count(old)==0:
+              import re
+              t,n=re.subn(r'https://embed\.ventusky\.com/\?p=12\.35;-69\.15;7&l=wind[^"\']+', new, t, count=1)
+              print('regex', n)
+          else:
+              t=t.replace(old,new)
+          t=t.replace('Ventusky wind \u2014 ABC islands','Windy wind \u2014 ABC islands')
+          t=t.replace('Ventusky wind — ABC islands','Windy wind — ABC islands')
+          t=t.replace('💨 Wind · Ventusky','💨 Wind · ABC')
           p.write_text(t)
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html
-          git diff --cached --quiet || git commit -m 'Ventusky wind embed requests knots'
+          git diff --cached --quiet || git commit -m 'Wind map: Windy ECMWF in knots (Ventusky embeds cannot force kt)'
           git push
