@@ -11,22 +11,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Ventusky 10m wind from user link
+      - name: Windy wind kt + bump SW
         run: |
           python3 << 'PY'
           from pathlib import Path
           p=Path('index.html')
           t=p.read_text()
-          old='https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=7&level=surface&overlay=wind&product=ecmwf&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off#12.350,-69.150,7,p:off'
-          new='https://embed.ventusky.com/?p=11.65;-69.04;8&l=wind-10m&w=off'
-          print('found', t.count(old))
+          old='https://embed.ventusky.com/?p=11.65;-69.04;8&l=wind-10m&w=off'
+          new='https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=7&level=surface&overlay=wind&product=ecmwf&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off#12.350,-69.150,7,p:off'
+          print('found ventusky wind', t.count(old))
           t=t.replace(old,new)
-          t=t.replace('Windy wind — ABC islands','Ventusky wind 10 m — ABC islands')
-          t=t.replace('💨 Wind · ABC','💨 Wind 10 m · Ventusky')
+          t=t.replace('Ventusky wind 10 m — ABC islands','Windy wind — ABC islands')
+          t=t.replace('💨 Wind 10 m · Ventusky','💨 Wind · ABC')
           p.write_text(t)
+          sw=Path('sw.js')
+          s=sw.read_text()
+          s2=s.replace("const CACHE = 'rwc-shell-v10';","const CACHE = 'rwc-shell-v11';")
+          s2=s2.replace("const CACHE = 'rwc-shell-v11';","const CACHE = 'rwc-shell-v12';") if "rwc-shell-v11" in s2 and 'v10' not in s else s2
+          # if already v11 from a previous bump attempt, go to v12; if v10, first replace made v11
+          if "rwc-shell-v10" in s:
+              s2=s.replace("const CACHE = 'rwc-shell-v10';","const CACHE = 'rwc-shell-v11';")
+          elif "rwc-shell-v11" in s:
+              s2=s.replace("const CACHE = 'rwc-shell-v11';","const CACHE = 'rwc-shell-v12';")
+          else:
+              import re
+              s2,n=re.subn(r"const CACHE = 'rwc-shell-v(\d+)';", lambda m: f"const CACHE = 'rwc-shell-v{int(m.group(1))+1}';", s, count=1)
+              print('regex bump', n)
+          sw.write_text(s2)
+          print('cache line', [ln for ln in s2.splitlines() if 'CACHE' in ln][:3])
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html
-          git diff --cached --quiet || git commit -m 'Wind map: Ventusky 10 m wind-speed (w=off) from provided link'
+          git add index.html sw.js
+          git diff --cached --quiet || git commit -m 'Wind map back to Windy in kt; bump service worker cache'
           git push
