@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
+      - patches/fix_synop_clouds.py
 permissions:
   contents: write
 jobs:
@@ -11,33 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: SYNOP cloud groups + sweep
+      - name: Run patch script
         run: |
-          python3 << 'END'
-          from pathlib import Path
-          p = Path('index.html')
-          t = p.read_text()
-          old1 = """      } else if(id==='8'&&!slash){\n        r.P.low_cloud_cover=['SKC','FEW','FEW','SCT','SCT','BKN','BKN','OVC','OVC','\u2014'][parseInt(g[1],10)]||'\u2014';\n        r.P.CL=CL[parseInt(g[3],10)]||'\u2014';\n        r.P.CM=CM[parseInt(g[4],10)]||'\u2014';\n      }"""
-          new1 = """      } else if(id==='8'&&!slash){\n        const Nh=parseInt(g[1],10), cl=parseInt(g[2],10), cm=parseInt(g[3],10), ch=parseInt(g[4],10);\n        r.P.cloud_group8=g;\n        if(!isNaN(Nh)){ r.P.low_cloud_cover=['SKC','FEW','FEW','SCT','SCT','BKN','BKN','OVC','OVC','\u2014'][Nh]||'\u2014'; r.P.Nh=Nh; }\n        if(!isNaN(cl)) r.P.CL=CL[cl]||'\u2014';\n        if(!isNaN(cm)) r.P.CM=CM[cm]||'\u2014';\n        if(!isNaN(ch)) r.P.CH=CH[ch]||'\u2014';\n      }"""
-          print('sec1 8-group', old1 in t)
-          if old1 in t:
-              t=t.replace(old1,new1,1)
-          old3 = """        else if(id==='8'&&!slash){\n          r.P.low_cloud_cover=['SKC','FEW','FEW','SCT','SCT','BKN','BKN','OVC','OVC','\u2014'][parseInt(g[1],10)]||'\u2014';\n          r.P.CL=CL[parseInt(g[3],10)]||'\u2014'; r.P.CM=CM[parseInt(g[4],10)]||'\u2014';\n        }"""
-          new3 = """        else if(id==='8'&&!slash){\n          const Ns=parseInt(g[1],10), Cg=parseInt(g[2],10), hs=parseInt(g.slice(3,5),10);\n          const CGEN=['Ci','Cc','Cs','Ac','As','Ns','Sc','St','Cu','Cb'];\n          let ft=null;\n          if(!isNaN(hs)&&hs<=50) ft=Math.round(hs*30*3.28084);\n          else if(!isNaN(hs)&&hs<=80) ft=Math.round((1800+(hs-56)*300)*3.28084);\n          else if(hs===81) ft=34450; else if(hs===82) ft=39370; else if(hs===83) ft=44300;\n          const amt=['SKC','FEW','FEW','SCT','SCT','BKN','BKN','OVC','OVC','\u2014'][Ns]||'';\n          const typ=CGEN[Cg]||'';\n          const hstr=ft==null?'':(ft>=1000?(ft/1000).toFixed(1)+'kft':Math.round(ft)+'ft');\n          const line=[amt,typ,hstr].filter(Boolean).join(' ');\n          if(line){ r.P.cloud_layers=r.P.cloud_layers||[]; r.P.cloud_layers.push(line); }\n        }"""
-          print('sec3 8-group', old3 in t)
-          if old3 in t:
-              t=t.replace(old3,new3,1)
-          t=t.replace("if(P.CM&&P.CM!=='\u2014') cloudBits.push(`Mid: ${P.CM}`);",\n                      "if(P.CM&&P.CM!=='\u2014') cloudBits.push(`Mid: ${P.CM}`);\n  if(P.CH&&P.CH!=='\u2014') cloudBits.push(`High: ${P.CH}`);\n  if(P.cloud_layers&&P.cloud_layers.length) cloudBits.push(P.cloud_layers.join(' | '));")
-          olds = "if(P.cloud_cover) srows.push(['CLOUD',P.cloud_cover+(P.cloud_oktas!=null?' '+P.cloud_oktas+'/8':'')]);"
-          news = "if(P.cloud_cover) srows.push(['CLOUD',P.cloud_cover+(P.cloud_oktas!=null?' '+P.cloud_oktas+'/8':'')]);\n      if(P.CL&&P.CL!=='\u2014') srows.push(['CL',P.CL]);\n      if(P.CM&&P.CM!=='\u2014') srows.push(['CM',P.CM]);\n      if(P.CH&&P.CH!=='\u2014') srows.push(['CH',P.CH]);\n      if(P.cloud_layers&&P.cloud_layers.length) srows.push(['LAYERS',P.cloud_layers.join(' \u00b7 ')]);"
-          print('srows', olds in t)
-          if olds in t: t=t.replace(olds,news,1)
-          p.write_text(t)
-          sw=Path('sw.js').read_text().replace('rwc-shell-v16','rwc-shell-v17').replace('rwc-shell-v15','rwc-shell-v17')
-          Path('sw.js').write_text(sw)
-          END
+          python3 patches/fix_synop_clouds.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v16','rwc-shell-v17').replace('rwc-shell-v15','rwc-shell-v17'); p.write_text(t)"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
-          git diff --cached --quiet || git commit -m 'SYNOP 8NhCLCMCH + layer groups on Skew-T; fix cloud-type decode'
+          git diff --cached --quiet || git commit -m 'SYNOP cloud groups CL/CM/CH and layers on Skew-T'
           git push
