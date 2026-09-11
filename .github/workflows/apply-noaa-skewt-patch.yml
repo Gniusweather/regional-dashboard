@@ -11,26 +11,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Add TTBB raw link
+      - name: Add TTBB link
         run: |
-          python3 -c "
+          python3 << 'END'
           from pathlib import Path
-          p=Path('index.html')
-          t=p.read_text()
-          old='Full sounding text data ↗</a>`:\'\''
-          new='TTAA raw (mandatory) ↗</a>`,\n    \`<a class=\"sonde-link\" href=\"https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt\" target=\"_blank\" rel=\"noopener\">TTBB raw (significant levels) ↗</a>`'
-          print('found', old in t)
-          # simpler
-          needle='Full sounding text data ↗</a>`'
-          print('needle', t.count(needle))
-          t=t.replace(needle,'TTAA raw (mandatory) ↗</a>`,\n    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt" target="_blank" rel="noopener">TTBB raw (significant levels) ↗</a>`',1)
+          p = Path('index.html')
+          t = p.read_text()
+          t = t.replace('Full sounding text data', 'TTAA raw USNU01')
+          needle = 'TTAA raw USNU01 ↗</a>`:\'\''
+          add = 'TTAA raw USNU01 ↗</a>`,\n    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt" target="_blank" rel="noopener">TTBB raw UKNU01 ↗</a>`:\'\''
+          if needle in t:
+              t = t.replace(needle, add, 1)
+              print('added TTBB link')
+          else:
+              print('needle missing, TTAA label only')
           p.write_text(t)
-          sw=Path('sw.js').read_text()
-          sw=sw.replace(\"rwc-shell-v12\",\"rwc-shell-v13\").replace(\"rwc-shell-v11\",\"rwc-shell-v13\")
-          Path('sw.js').write_text(sw)
-          "
+          sw = Path('sw.js')
+          s = sw.read_text().replace('rwc-shell-v12', 'rwc-shell-v13').replace('rwc-shell-v11', 'rwc-shell-v13')
+          sw.write_text(s)
+          END
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
-          git diff --cached --quiet || git commit -m 'Link both TTAA and TTBB raw NOAA files on sounding'
+          git diff --cached --quiet || git commit -m 'Add TTBB UKNU01 raw link next to TTAA'
           git push
