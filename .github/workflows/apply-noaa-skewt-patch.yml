@@ -11,25 +11,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Footer level count
+      - name: Default Skew-T size
         run: |
           python3 << 'END'
           from pathlib import Path
           p = Path('index.html')
           t = p.read_text()
-          old = "NOAA TTAA+TTBB · TNCC 78988 · heights ft"
-          new = "NOAA TTAA+TTBB · '+prof.length+' lvls · heights ft"
-          # current is a string literal in fillText
-          a = "'NOAA TTAA+TTBB · TNCC 78988 · heights ft'"
-          b = "'NOAA TTAA+TTBB · '+prof.length+' lvls · heights ft'"
-          print('found', a in t)
-          t = t.replace(a, b, 1)
+          t = t.replace('@media(min-width:1100px){.skewt-box{height:940px;}}','')
+          t = t.replace('@media(min-width:1400px){.skewt-box{height:1020px;}}','')
+          t = t.replace('.skewt-box{height:520px;}','.skewt-box{height:860px;}')
+          t = t.replace('.skewt-box{height:460px;}','.skewt-box{height:860px;}')
+          print('860 count', t.count('height:860px'))
+          print('940', 'height:940px' in t, '1020', 'height:1020px' in t)
           p.write_text(t)
-          sw = Path('sw.js').read_text().replace('rwc-shell-v13','rwc-shell-v14').replace('rwc-shell-v12','rwc-shell-v14')
+          sw = Path('sw.js').read_text().replace('rwc-shell-v14','rwc-shell-v15').replace('rwc-shell-v13','rwc-shell-v15')
           Path('sw.js').write_text(sw)
           END
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
-          git diff --cached --quiet || git commit -m 'Skew-T footer shows TTAA+TTBB merged level count'
+          git diff --cached --quiet || git commit -m 'Skew-T box locked to default 860px height'
           git push
