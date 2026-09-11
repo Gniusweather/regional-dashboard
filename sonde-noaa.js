@@ -205,11 +205,8 @@ function parseNoaaTempParts(parts){
     for(const [k,v] of m) sondeTempMergeLevel(merged,k,v);
   }
   const profile=[...merged.values()].filter(lv=>{
-      if(lv.t==null||!(lv.p>=50&&lv.p<=1100)) return false;
-      if(lv.t>45||lv.t<-90) return false;
-      if(lv.p>=850 && lv.t<-5) return false;
-      if(lv.p>=700 && lv.t<-20) return false;
-      if(lv.p>=400 && lv.t<-50) return false;
+      if(lv.t==null||!(lv.p>=70&&lv.p<=1100)) return false;
+      if(lv.t>48||lv.t<-95) return false;
       return true;
     }).sort((a,b)=>b.p-a.p);
   if(profile.length<8) return null;

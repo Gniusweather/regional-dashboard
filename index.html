@@ -4926,7 +4926,7 @@ function drawSkewT(canvas,profile,meta,opt){
   PLEVELS.forEach(P=>{ ctx.fillText(String(P),g.pad.l-4,g.yOf(P)); });
 
   // Geopotential heights just inside the left edge — same placement the
-  // reference chart uses, with feet added alongside the meters (Wyoming's
+  // reference chart uses, feet only (Wyoming's
   // own chart only gives meters, but altitude in feet matters more for the
   // aviation-facing rest of this app). Feet lead since that's the more
   // relevant unit here, with a light backing pill behind each label so it
@@ -4944,7 +4944,7 @@ function drawSkewT(canvas,profile,meta,opt){
     lastHy=y;
     const ft=h*3.28084;
     const ftStr=ft>=1000?(ft/1000).toFixed(1)+'k':String(Math.round(ft));
-    const label=`${ftStr}ft · ${Math.round(h)}m`;
+    const label=ftStr+'ft';
     const w=ctx.measureText(label).width;
     ctx.fillStyle='rgba(255,255,255,0.85)';
     ctx.fillRect(g.pad.l+1,y-8,w+8,16);
@@ -5110,7 +5110,7 @@ function drawSkewT(canvas,profile,meta,opt){
   }
   if(cssW>=380){
     ctx.font='9px sans-serif';ctx.fillStyle='rgba(60,60,60,0.9)';ctx.textAlign='right';
-    ctx.fillText('NOAA raw TEMP · TNCC 78988 · COD layout',g.pad.l+g.plotW,g.H-4);
+    ctx.fillText('NOAA TTAA+TTBB · TNCC 78988 · heights ft',g.pad.l+g.plotW,g.H-4);
   }
 
   // Plain-English summary — same analysis text shown in the HTML card above
