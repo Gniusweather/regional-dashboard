@@ -3598,7 +3598,7 @@ function makeSynopCard(rep,bulletinTime,trend){
   if(P.cloud_base_h) cloudBits.push(`Base ${P.cloud_base_h}`);
   if(P.CL&&P.CL!=='—') cloudBits.push(`Low: ${P.CL}`);
   if(P.CM&&P.CM!=='—') cloudBits.push(`Mid: ${P.CM}`);
-  if(P.CH&&P.CH!=='-') cloudBits.push(`High: ${P.CH}`);
+  if(P.CH&&P.CH!=='-'&&P.CH!=='—') cloudBits.push(`High: ${P.CH}`);
   if(P.cloud_layers&&P.cloud_layers.length) cloudBits.push(P.cloud_layers.join(' | '));
   const cloudStr=cloudBits.length?cloudBits.join(' · '):'—';
 
@@ -5054,10 +5054,10 @@ function drawSkewT(canvas,profile,meta,opt){
       if(P.stn_pres!=null) srows.push(['STN P',Math.round(P.stn_pres)+'hPa']);
       if(P.vis) srows.push(['VIS',P.vis]);
       if(P.cloud_cover) srows.push(['CLOUD',P.cloud_cover+(P.cloud_oktas!=null?' '+P.cloud_oktas+'/8':'')]);
-      if(P.CL&&P.CL!=='-') srows.push(['CL',P.CL]);
-      if(P.CM&&P.CM!=='-') srows.push(['CM',P.CM]);
-      if(P.CH&&P.CH!=='-') srows.push(['CH',P.CH]);
-      if(P.cloud_layers&&P.cloud_layers.length) srows.push(['LAYERS',P.cloud_layers.join(' | ')]);
+      if(P.CL&&P.CL!=='-'&&P.CL!=='—') srows.push(['CL',P.CL]);
+      if(P.CM&&P.CM!=='-'&&P.CM!=='—') srows.push(['CM',P.CM]);
+      if(P.CH&&P.CH!=='-'&&P.CH!=='—') srows.push(['CH',P.CH]);
+      if(P.cloud_layers&&P.cloud_layers.length) P.cloud_layers.forEach((ln,i)=>srows.push([i===0?'LYR':'',ln]));
       if(P.precip_mm!=null) srows.push(['RAIN',P.precip_mm+'mm'+(P.precip_period?'/'+P.precip_period:'')]);
       if(P.temp_max!=null) srows.push(['MAX T',P.temp_max.toFixed(1)+'°C']);
       if(P.temp_min!=null) srows.push(['MIN T',P.temp_min.toFixed(1)+'°C']);
@@ -5075,7 +5075,7 @@ function drawSkewT(canvas,profile,meta,opt){
           ctx.textAlign='left';ctx.font='8.5px sans-serif';ctx.fillStyle='#555';
           ctx.fillText(r[0],px,py);
           ctx.textAlign='left';ctx.font='bold 11px sans-serif';ctx.fillStyle='#000';
-          ctx.fillText(r[1],px,py+10);
+          {let v=r[1]; while(ctx.measureText(v).width>pw&&v.length>4) v=v.slice(0,-2); if(v!==r[1]) v=v.replace(/[\s\/]+$/,'')+'…'; ctx.fillText(v,px,py+10);}
           py+=24;
         });
         py+=8; // gap before the rain-outlook box below
