@@ -11,24 +11,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Default Skew-T size
+      - name: Fix broken links ternary
         run: |
           python3 << 'END'
           from pathlib import Path
           p = Path('index.html')
           t = p.read_text()
-          t = t.replace('@media(min-width:1100px){.skewt-box{height:940px;}}','')
-          t = t.replace('@media(min-width:1400px){.skewt-box{height:1020px;}}','')
-          t = t.replace('.skewt-box{height:520px;}','.skewt-box{height:860px;}')
-          t = t.replace('.skewt-box{height:460px;}','.skewt-box{height:860px;}')
-          print('860 count', t.count('height:860px'))
-          print('940', 'height:940px' in t, '1020', 'height:1020px' in t)
+          old = '''    srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">TTAA raw USNU01 ↗</a>`,
+    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt" target="_blank" rel="noopener">TTBB raw UKNU01 ↗</a>`:\'\'\n'''
+          new = '''    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/us/usnu01.tncc..txt" target="_blank" rel="noopener">TTAA raw USNU01 ↗</a>`,
+    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt" target="_blank" rel="noopener">TTBB raw UKNU01 ↗</a>`,
+'''
+          print('found exact', old in t)
+          if old not in t:
+              # fallbacks
+              t2 = t.replace("`:''\n  ].filter(Boolean).join('');", "`,\n  ].filter(Boolean).join('');", 1)
+              print('fallback applied', t2 != t)
+              t = t2
+          else:
+              t = t.replace(old, new, 1)
           p.write_text(t)
-          sw = Path('sw.js').read_text().replace('rwc-shell-v14','rwc-shell-v15').replace('rwc-shell-v13','rwc-shell-v15')
+          sw = Path('sw.js').read_text().replace('rwc-shell-v15','rwc-shell-v16')
           Path('sw.js').write_text(sw)
           END
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
-          git diff --cached --quiet || git commit -m 'Skew-T box locked to default 860px height'
+          git diff --cached --quiet || git commit -m 'Fix syntax error in sounding links that broke the whole app'
           git push
