@@ -11,30 +11,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Feet-only labels and TTBB plot
+      - name: Attach parts and show TTBB raw
         run: |
           python3 << 'PY'
           from pathlib import Path
-          idx=Path('index.html'); t=idx.read_text()
-          t=t.replace("const label=`${ftStr}ft · ${Math.round(h)}m`;","const label=ftStr+'ft';")
-          t=t.replace('NOAA raw TEMP · TNCC 78988 · COD layout','NOAA TTAA+TTBB · TNCC 78988 · heights ft')
-          t=t.replace('with feet added alongside the meters','feet only')
-          idx.write_text(t)
-          js=Path('sonde-noaa.js'); s=js.read_text()
-          old='''const profile=[...merged.values()].filter(lv=>{\n      if(lv.t==null||!(lv.p>=50&&lv.p<=1100)) return false;\n      if(lv.t>45||lv.t<-90) return false;\n      if(lv.p>=850 && lv.t<-5) return false;\n      if(lv.p>=700 && lv.t<-20) return false;\n      if(lv.p>=400 && lv.t<-50) return false;\n      return true;\n    }).sort((a,b)=>b.p-a.p);'''
-          new='''const profile=[...merged.values()].filter(lv=>{\n      if(lv.t==null||!(lv.p>=70&&lv.p<=1100)) return false;\n      if(lv.t>48||lv.t<-95) return false;\n      return true;\n    }).sort((a,b)=>b.p-a.p);'''
-          print('filter block', old in s)
-          if old in s: s=s.replace(old,new,1)
+          js=Path('sonde-noaa.js')
+          s=js.read_text()
+          s=s.replace(
+            "return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||null};",
+            "parsed.parts=j.parts; parsed.nLevels=(parsed.profile||[]).length; return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||null,parts:j.parts};",
+            1)
+          s=s.replace(
+            "parsed.source='NOAA tgftp raw TEMP (live)';\n  return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||null};",
+            "parsed.source='NOAA tgftp raw TEMP (live)';\n  parsed.parts=parts; parsed.nLevels=(parsed.profile||[]).length;\n  return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||null,parts};",
+            1)
           js.write_text(s)
+          idx=Path('index.html'); t=idx.read_text()
+          old='''    srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding text data ↗</a>`:''\n  ].filter(Boolean).join('');'''
+          new='''    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/us/usnu01.tncc..txt" target="_blank" rel="noopener">TTAA raw ↗</a>`,\n    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt" target="_blank" rel="noopener">TTBB raw ↗</a>`,\n    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/ul/ulnu01.tncc..txt" target="_blank" rel="noopener">TTCC raw ↗</a>`\n  ].filter(Boolean).join('');\n  const rawParts=parsed.parts||(typeof window!=='undefined'&&window.__sondeRawParts)||null;\n  const rawBox=rawParts?`<details class="sonde-raw" open><summary>Raw NOAA TEMP — TTAA + TTBB (${(parsed.profile||[]).length} levels)</summary><pre style="white-space:pre-wrap;font:11px/1.35 ui-monospace,monospace;max-height:220px;overflow:auto;background:#04121c;color:#d7e8ef;padding:8px;border-radius:8px">TTAA\\n${escapeHtml(rawParts.TTAA||'(missing)')}\\n\\nTTBB\\n${escapeHtml(rawParts.TTBB||'(missing)')}</pre></details>`:'';'''
+          print('links block', old in t)
+          if old in t:
+              t=t.replace(old,new,1)
+          else:
+              t=t.replace(\n                'Full sounding text data ↗</a>`:''\n  ].filter(Boolean).join('');',\n                'TTAA raw ↗</a>`,\n    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt" target="_blank" rel="noopener">TTBB raw ↗</a>`\n  ].filter(Boolean).join('');')
+          # inject rawBox into content html if we can find sondeContent assignment
+          if 'const rawBox=' in t and '${links}' in t:
+              t=t.replace('${links}','${links}${rawBox||""}')
+          Path('index.html').write_text(t)
           sw=Path('sw.js').read_text()
-          if "rwc-shell-v11" in sw:
-              Path('sw.js').write_text(sw.replace("const CACHE = 'rwc-shell-v11';","const CACHE = 'rwc-shell-v12';"))
-          elif "rwc-shell-v12" in sw:
-              Path('sw.js').write_text(sw.replace("const CACHE = 'rwc-shell-v12';","const CACHE = 'rwc-shell-v13';"))
-          print('label', "ftStr+'ft'" in t or 'ftStr+\'ft\'' in t)
+          if "v12" in sw: Path('sw.js').write_text(sw.replace('rwc-shell-v12','rwc-shell-v13'))
+          elif "v11" in sw: Path('sw.js').write_text(sw.replace('rwc-shell-v11','rwc-shell-v13'))
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sonde-noaa.js sw.js
-          git diff --cached --quiet || git commit -m 'Skew-T height labels in feet only; plot all TTAA+TTBB levels'
+          git diff --cached --quiet || git commit -m 'Show TTAA and TTBB raw NOAA text on the sounding panel'
           git push
