@@ -11,27 +11,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Add TTBB link
+      - name: Footer level count
         run: |
           python3 << 'END'
           from pathlib import Path
           p = Path('index.html')
           t = p.read_text()
-          t = t.replace('Full sounding text data', 'TTAA raw USNU01')
-          needle = 'TTAA raw USNU01 ↗</a>`:\'\''
-          add = 'TTAA raw USNU01 ↗</a>`,\n    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt" target="_blank" rel="noopener">TTBB raw UKNU01 ↗</a>`:\'\''
-          if needle in t:
-              t = t.replace(needle, add, 1)
-              print('added TTBB link')
-          else:
-              print('needle missing, TTAA label only')
+          old = "NOAA TTAA+TTBB · TNCC 78988 · heights ft"
+          new = "NOAA TTAA+TTBB · '+prof.length+' lvls · heights ft"
+          # current is a string literal in fillText
+          a = "'NOAA TTAA+TTBB · TNCC 78988 · heights ft'"
+          b = "'NOAA TTAA+TTBB · '+prof.length+' lvls · heights ft'"
+          print('found', a in t)
+          t = t.replace(a, b, 1)
           p.write_text(t)
-          sw = Path('sw.js')
-          s = sw.read_text().replace('rwc-shell-v12', 'rwc-shell-v13').replace('rwc-shell-v11', 'rwc-shell-v13')
-          sw.write_text(s)
+          sw = Path('sw.js').read_text().replace('rwc-shell-v13','rwc-shell-v14').replace('rwc-shell-v12','rwc-shell-v14')
+          Path('sw.js').write_text(sw)
           END
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
-          git diff --cached --quiet || git commit -m 'Add TTBB UKNU01 raw link next to TTAA'
+          git diff --cached --quiet || git commit -m 'Skew-T footer shows TTAA+TTBB merged level count'
           git push
