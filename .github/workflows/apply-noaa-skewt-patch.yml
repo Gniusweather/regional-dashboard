@@ -11,37 +11,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Windy wind kt + bump SW
+      - name: Feet-only labels and TTBB plot
         run: |
           python3 << 'PY'
           from pathlib import Path
-          p=Path('index.html')
-          t=p.read_text()
-          old='https://embed.ventusky.com/?p=11.65;-69.04;8&l=wind-10m&w=off'
-          new='https://embed.windy.com/embed2.html?lat=12.35&lon=-69.15&detailLat=12.35&detailLon=-69.15&zoom=7&level=surface&overlay=wind&product=ecmwf&menu=&message=&marker=&calendar=&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0C&radarRange=-1&particlesAnim=off#12.350,-69.150,7,p:off'
-          print('found ventusky wind', t.count(old))
-          t=t.replace(old,new)
-          t=t.replace('Ventusky wind 10 m — ABC islands','Windy wind — ABC islands')
-          t=t.replace('💨 Wind 10 m · Ventusky','💨 Wind · ABC')
-          p.write_text(t)
-          sw=Path('sw.js')
-          s=sw.read_text()
-          s2=s.replace("const CACHE = 'rwc-shell-v10';","const CACHE = 'rwc-shell-v11';")
-          s2=s2.replace("const CACHE = 'rwc-shell-v11';","const CACHE = 'rwc-shell-v12';") if "rwc-shell-v11" in s2 and 'v10' not in s else s2
-          # if already v11 from a previous bump attempt, go to v12; if v10, first replace made v11
-          if "rwc-shell-v10" in s:
-              s2=s.replace("const CACHE = 'rwc-shell-v10';","const CACHE = 'rwc-shell-v11';")
-          elif "rwc-shell-v11" in s:
-              s2=s.replace("const CACHE = 'rwc-shell-v11';","const CACHE = 'rwc-shell-v12';")
-          else:
-              import re
-              s2,n=re.subn(r"const CACHE = 'rwc-shell-v(\d+)';", lambda m: f"const CACHE = 'rwc-shell-v{int(m.group(1))+1}';", s, count=1)
-              print('regex bump', n)
-          sw.write_text(s2)
-          print('cache line', [ln for ln in s2.splitlines() if 'CACHE' in ln][:3])
+          idx=Path('index.html'); t=idx.read_text()
+          t=t.replace("const label=`${ftStr}ft · ${Math.round(h)}m`;","const label=ftStr+'ft';")
+          t=t.replace('NOAA raw TEMP · TNCC 78988 · COD layout','NOAA TTAA+TTBB · TNCC 78988 · heights ft')
+          t=t.replace('with feet added alongside the meters','feet only')
+          idx.write_text(t)
+          js=Path('sonde-noaa.js'); s=js.read_text()
+          old='''const profile=[...merged.values()].filter(lv=>{\n      if(lv.t==null||!(lv.p>=50&&lv.p<=1100)) return false;\n      if(lv.t>45||lv.t<-90) return false;\n      if(lv.p>=850 && lv.t<-5) return false;\n      if(lv.p>=700 && lv.t<-20) return false;\n      if(lv.p>=400 && lv.t<-50) return false;\n      return true;\n    }).sort((a,b)=>b.p-a.p);'''
+          new='''const profile=[...merged.values()].filter(lv=>{\n      if(lv.t==null||!(lv.p>=70&&lv.p<=1100)) return false;\n      if(lv.t>48||lv.t<-95) return false;\n      return true;\n    }).sort((a,b)=>b.p-a.p);'''
+          print('filter block', old in s)
+          if old in s: s=s.replace(old,new,1)
+          js.write_text(s)
+          sw=Path('sw.js').read_text()
+          if "rwc-shell-v11" in sw:
+              Path('sw.js').write_text(sw.replace("const CACHE = 'rwc-shell-v11';","const CACHE = 'rwc-shell-v12';"))
+          elif "rwc-shell-v12" in sw:
+              Path('sw.js').write_text(sw.replace("const CACHE = 'rwc-shell-v12';","const CACHE = 'rwc-shell-v13';"))
+          print('label', "ftStr+'ft'" in t or 'ftStr+\'ft\'' in t)
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html sw.js
-          git diff --cached --quiet || git commit -m 'Wind map back to Windy in kt; bump service worker cache'
+          git add index.html sonde-noaa.js sw.js
+          git diff --cached --quiet || git commit -m 'Skew-T height labels in feet only; plot all TTAA+TTBB levels'
           git push
