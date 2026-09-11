@@ -5845,7 +5845,8 @@ function renderRadiosonde(opts){
 
     canPlot?`<a class="sonde-link sonde-link-big" href="#" onclick="event.preventDefault();printSkewT();">🖨 Print chart</a>`:'',
     canPlot?`<a class="sonde-link sonde-link-big" href="#" onclick="event.preventDefault();exportSkewTPng();">⬇ Export PNG</a>`:'',
-    srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">Full sounding text data ↗</a>`:''
+    srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">TTAA raw USNU01 ↗</a>`,
+    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt" target="_blank" rel="noopener">TTBB raw UKNU01 ↗</a>`:''
   ].filter(Boolean).join('');
   // Restore the SYNOP/rain-outlook enrichments from cache rather than
   // always blanking to "Loading…" — see getSondeEnrichCache's comment.
