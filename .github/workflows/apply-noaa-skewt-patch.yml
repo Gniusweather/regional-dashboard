@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
+      - patches/stack_synop_layers.py
 permissions:
   contents: write
 jobs:
@@ -11,11 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Bump SW
+      - name: Stack SYNOP layers
         run: |
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v17','rwc-shell-v18'); p.write_text(t); print(t.splitlines()[1])"
+          python3 patches/stack_synop_layers.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v18','rwc-shell-v19'); p.write_text(t)"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add sw.js
-          git diff --cached --quiet || git commit -m 'Bump service worker cache to rwc-shell-v18'
+          git add index.html sw.js
+          git diff --cached --quiet || git commit -m 'Stack SYNOP cloud layers on Skew-T; hide empty CM'
           git push
