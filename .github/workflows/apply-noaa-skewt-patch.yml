@@ -11,31 +11,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fix broken links ternary
+      - name: Fix syntax
         run: |
           python3 << 'END'
           from pathlib import Path
           p = Path('index.html')
           t = p.read_text()
-          old = '''    srcUrl?`<a class="sonde-link" href="${escapeHtml(srcUrl)}" target="_blank" rel="noopener">TTAA raw USNU01 ↗</a>`,
-    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt" target="_blank" rel="noopener">TTBB raw UKNU01 ↗</a>`:\'\'\n'''
-          new = '''    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/us/usnu01.tncc..txt" target="_blank" rel="noopener">TTAA raw USNU01 ↗</a>`,
-    `<a class="sonde-link" href="https://tgftp.nws.noaa.gov/data/raw/uk/uknu01.tncc..txt" target="_blank" rel="noopener">TTBB raw UKNU01 ↗</a>`,
-'''
-          print('found exact', old in t)
-          if old not in t:
-              # fallbacks
-              t2 = t.replace("`:''\n  ].filter(Boolean).join('');", "`,\n  ].filter(Boolean).join('');", 1)
-              print('fallback applied', t2 != t)
-              t = t2
-          else:
-              t = t.replace(old, new, 1)
+          t = t.replace("srcUrl?`<a class=\"sonde-link\"", "`<a class=\"sonde-link\"", 1)
+          t = t.replace("TTBB raw UKNU01 \u2197</a>`:''", "TTBB raw UKNU01 \u2197</a>`")
+          t = t.replace("TTBB raw UKNU01 ↗</a>`:''", "TTBB raw UKNU01 ↗</a>`")
           p.write_text(t)
-          sw = Path('sw.js').read_text().replace('rwc-shell-v15','rwc-shell-v16')
+          print('srcUrl leftover', t.count('srcUrl?`<a'))
+          print('bad ternary leftover', ":''" in t[t.find('TTBB raw'):t.find('TTBB raw')+80] if 'TTBB raw' in t else 'no')
+          sw = Path('sw.js').read_text().replace('rwc-shell-v15', 'rwc-shell-v16')
           Path('sw.js').write_text(sw)
           END
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
-          git diff --cached --quiet || git commit -m 'Fix syntax error in sounding links that broke the whole app'
+          git diff --cached --quiet || git commit -m 'Fix sounding-link syntax error that crashed the app'
           git push
