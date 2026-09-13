@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/stack_synop_layers.py
+      - patches/wire_tabs.py
 permissions:
   contents: write
 jobs:
@@ -12,12 +12,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Stack SYNOP layers
+      - name: Wire tabs and bump SW
         run: |
-          python3 patches/stack_synop_layers.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v18','rwc-shell-v19'); p.write_text(t)"
+          python3 patches/wire_tabs.py
+          python3 << 'PY'
+          from pathlib import Path
+          sw=Path('sw.js')
+          t=sw.read_text().replace("rwc-shell-v19","rwc-shell-v20").replace("rwc-shell-v18","rwc-shell-v20")
+          if "./atc.html" not in t:
+              t=t.replace("'./favicon-32.png'", "'./favicon-32.png',\n  './atc.html',\n  './encoders.html',\n  './overzicht.html'")
+          sw.write_text(t)
+          print(t.splitlines()[1])
+          PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
-          git diff --cached --quiet || git commit -m 'Stack SYNOP cloud layers on Skew-T; hide empty CM'
+          git diff --cached --quiet || git commit -m 'Add ATC header tab, SYNOP Encode sub-tab, Stations Overzicht'
           git push
