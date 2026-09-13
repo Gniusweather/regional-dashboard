@@ -1,5 +1,5 @@
 /* Regional Weather Centre — service worker (app-shell cache, live data passthrough) */
-const CACHE = 'rwc-shell-v19';
+const CACHE = 'rwc-shell-v20';
 const ASSETS = [
   './',
   './index.html',
@@ -9,7 +9,10 @@ const ASSETS = [
   './icon-192.png',
   './icon-512.png',
   './icon-180.png',
-  './favicon-32.png'
+  './favicon-32.png',
+  './atc.html',
+  './encoders.html',
+  './overzicht.html'
 ];
 
 self.addEventListener('install', e => {

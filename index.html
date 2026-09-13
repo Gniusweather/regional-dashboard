@@ -1474,11 +1474,16 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
     <div id="synopSection" class="table-wrapper fade-in hidden">
       <div class="section-header">
         <div class="section-title">SYNOP Reports</div>
+        <div class="section-controls" style="display:flex;gap:6px;flex-wrap:wrap">
+          <button type="button" class="btn-primary" id="synop-sub-reports" onclick="synopSub('reports')" style="font-size:12px;height:28px;padding:4px 10px">Reports</button>
+          <button type="button" class="btn-primary" id="synop-sub-encode" onclick="synopSub('encode')" style="font-size:12px;height:28px;padding:4px 10px;opacity:.75">Encode</button>
+        </div>
         <div class="section-controls">
           <button id="synop-refresh-btn" class="btn-primary" style="font-size:13px;height:30px;padding:6px 12px;" title="Load SYNOPs">↻ Load SYNOPs</button>
         </div>
       </div>
       <div class="table-card">
+        <div id="synop-encode-wrap" style="display:none;height:min(78vh,820px);border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px"><iframe src="encoders.html" title="SYNOP encoder" style="width:100%;height:100%;border:0;background:#0b1220"></iframe></div>
         <div id="synop-table">
           <div id="synop"></div>
         </div>
@@ -1486,6 +1491,12 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
       </div>
     </div>
 
+    <div id="atcSection" class="table-wrapper fade-in hidden">
+      <div class="section-header"><div class="section-title">Live ATC · ABC / TNCC</div></div>
+      <div style="height:min(82vh,920px);border-radius:10px;overflow:hidden;border:1px solid var(--border)">
+        <iframe src="atc.html" title="Live ATC" style="width:100%;height:100%;border:0;background:#0b1220"></iframe>
+      </div>
+    </div>
     <!-- KNMI Section -->
     <div id="knmiSection" class="table-wrapper fade-in hidden">
       <div class="section-header">
@@ -1577,6 +1588,13 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
       </div>
     </div>
 
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px">
+      <button type="button" class="btn-primary" id="st-sub-net" onclick="stationsSub('net')" style="font-size:12px;height:28px;padding:4px 10px">Network</button>
+      <button type="button" class="btn-primary" id="st-sub-ovz" onclick="stationsSub('ovz')" style="font-size:12px;height:28px;padding:4px 10px;opacity:.75">Overzicht</button>
+    </div>
+    <div id="ovz-wrap" style="display:none;min-height:60vh;border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-bottom:12px">
+      <iframe src="overzicht.html" title="Overzicht Weersgesteldheid" style="width:100%;height:min(80vh,900px);border:0;background:#fff"></iframe>
+    </div>
     <div id="stationsList" class="stations" aria-live="polite">
       <div style="padding:20px;color:var(--muted);font-family:var(--cond);letter-spacing:1px;text-transform:uppercase;font-size:14px;">Loading stations…</div>
     </div>
@@ -4406,10 +4424,35 @@ const synopSectionEl=document.getElementById('synopSection');
 const knmiSectionEl=document.getElementById('knmiSection');
 const mapsSectionEl=document.getElementById('mapsSection');
 const stationsSectionEl=document.getElementById('stationsSection');
+const atcSectionEl=document.getElementById('atcSection');
 const contentWrapperEl=document.querySelector('.content-wrapper');
 
+
+function synopSub(which){
+  const enc=document.getElementById('synop-encode-wrap');
+  const tbl=document.getElementById('synop-table');
+  const bar=document.getElementById('synop-updated');
+  if(enc) enc.style.display=which==='encode'?'block':'none';
+  if(tbl) tbl.style.display=which==='encode'?'none':'block';
+  if(bar) bar.style.display=which==='encode'?'none':'block';
+  const a=document.getElementById('synop-sub-encode'), b=document.getElementById('synop-sub-reports');
+  if(a) a.style.opacity=which==='encode'?'1':'.75';
+  if(b) b.style.opacity=which==='encode'?'.75':'1';
+}
+function stationsSub(which){
+  const ovz=document.getElementById('ovz-wrap');
+  const list=document.getElementById('stationsList');
+  if(ovz) ovz.style.display=which==='ovz'?'block':'none';
+  if(list) list.style.display=which==='ovz'?'none':'grid';
+  document.querySelectorAll('.summary,.stations-header #toggleMap').forEach(function(){});
+  const net=document.getElementById('st-sub-net'), o=document.getElementById('st-sub-ovz');
+  if(net) net.style.opacity=which==='ovz'?'.75':'1';
+  if(o) o.style.opacity=which==='ovz'?'1':'.75';
+  if(which==='ovz'){ try{ var f=ovz&&ovz.querySelector('iframe'); if(f&&(!f.dataset.loaded)){ f.src=f.src; f.dataset.loaded='1'; } }catch(e){} }
+}
+window.synopSub=synopSub; window.stationsSub=stationsSub;
 function switchTab(name){
-  [metarSectionEl,tafSectionEl,synopSectionEl,knmiSectionEl,mapsSectionEl].forEach(s=>s?.classList.add('hidden'));
+  [metarSectionEl,tafSectionEl,synopSectionEl,knmiSectionEl,mapsSectionEl,atcSectionEl].forEach(s=>s?.classList.add('hidden'));
   contentWrapperEl?.classList.remove('hidden');
   stationsSectionEl?.classList.add('hidden');
   stationsSectionEl?.setAttribute('aria-hidden','true');
@@ -4423,6 +4466,7 @@ function switchTab(name){
   else if(name==='synop'){synopSectionEl?.classList.remove('hidden');}
   else if(name==='knmi'){knmiSectionEl?.classList.remove('hidden');loadKnmiData();}
   else if(name==='maps'){mapsSectionEl?.classList.remove('hidden');loadRadiosonde();ensureMapsTabWindowsLoaded();}
+  else if(name==='atc'){atcSectionEl?.classList.remove('hidden');}
   else if(name==='stations'){
     contentWrapperEl?.classList.add('hidden');
     stationsSectionEl?.classList.remove('hidden');
