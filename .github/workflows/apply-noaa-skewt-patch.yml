@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/drop_vaisala_add_daysummary.py
 permissions:
   contents: write
 jobs:
@@ -12,12 +11,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Drop Vaisala and add Day summary
+      - name: Strip Vaisala from encoders.html
         run: |
-          python3 patches/drop_vaisala_add_daysummary.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v22','rwc-shell-v23').replace('rwc-shell-v21','rwc-shell-v23'); p.write_text(t); print(t.splitlines()[1])"
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path('encoders.html')
+          t = p.read_text(encoding='utf-8')
+          print('before', len(t), 'vaisala', t.lower().count('vaisala'))
+          out = []
+          for line in t.splitlines(True):
+              if "showEnc('vaisala'" in line and 'Vaisala' in line:
+                  print('drop btn', repr(line[:80]))
+                  continue
+              out.append(line)
+          t = ''.join(out)
+          m = 'id="synop-sub-vaisala"'
+          i = t.find(m)
+          print('marker', i)
+          if i >= 0:
+              start = t.rfind('<div', 0, i)
+              script = t.find('<script', i)
+              print('start', start, 'script', script)
+              if start >= 0 and script > start:
+                  t = t[:start] + t[script:]
+          p.write_text(t, encoding='utf-8')
+          print('after', len(t), 'vaisala', t.lower().count('vaisala'), 'button', 'Vaisala</button>' in t)
+          PY
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v23','rwc-shell-v24').replace('rwc-shell-v22','rwc-shell-v24'); p.write_text(t)"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add encoders.html index.html sw.js
-          git diff --cached --quiet || git commit -m 'Remove Vaisala from encoder; add SYNOP Day summary'
+          git add encoders.html sw.js
+          git diff --cached --stat
+          git diff --cached --quiet || git commit -m 'Remove Vaisala tab from SYNOP encoder'
           git push
