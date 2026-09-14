@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overzicht Weersgesteldheid</title>
+<style>
+body{margin:0;background:#e8eef4;color:#111;font-family:Trebuchet MS,Segoe UI,Verdana,sans-serif}
+.ovz-card{background:#fff;border-radius:10px;margin:10px;box-shadow:0 4px 18px rgba(0,0,0,.25);overflow:hidden}
+.ovz-hd{padding:12px 18px;display:flex;justify-content:space-between;flex-wrap:wrap;border-bottom:2px solid #111}
+.ovz-ttl{font-size:20px;font-weight:800}
+.ovz-date{padding:7px 18px;font-weight:600}
+.ovz-wrap{overflow-x:auto;padding:0 12px 12px}
+.ovz-tbl{width:100%;border-collapse:collapse;min-width:640px}
+.ovz-tbl th,.ovz-tbl td{border:1px solid #444;padding:6px 9px;text-align:center;font-size:14px}
+.ovz-tbl th{background:#eef2f6}
+.ovz-tbl td.l{text-align:left;font-weight:600}
+.ovz-gap td{border:none;height:12px}
+.ovz-src{font-size:11px;color:#777;vertical-align:super}
+.ovz-foot{padding:8px 18px 12px;font-size:13px;color:#555}
+.ovz-bar{display:flex;justify-content:flex-end;padding:8px 12px}
+.ovz-bar button{padding:6px 12px;border-radius:8px;border:0;background:#1e3a5f;color:#fff;font-weight:700;cursor:pointer}
+</style></head><body>
+<div class="ovz-bar"><button type="button" onclick="buildOverzicht(true)">Vernieuwen</button></div>
+<div id="ovzBody" style="padding:20px">Laden…</div>
+<script>
+const OVZ_STATIONS=[
+ {nm:'Aruba',wmo:'78982',icao:'TNCA',lat:12.50,lon:-70.01,g:1},
+ {nm:'Bonaire',wmo:'78990',icao:'TNCB',lat:12.13,lon:-68.27,g:1},
+ {nm:'Curaçao',wmo:'78988',icao:'TNCC',lat:12.19,lon:-68.96,g:1},
+ {nm:'Sint Eustatius',wmo:'78873',icao:'TNCE',lat:17.50,lon:-62.98,g:1},
+ {nm:'Sint Maarten',wmo:'78866',icao:'TNCM',lat:18.04,lon:-63.11,g:1},
+ {nm:'Amsterdam',wmo:'06240',icao:'EHAM',lat:52.31,lon:4.76,g:2},
+ {nm:'Atlanta',wmo:'72219',icao:'KATL',lat:33.64,lon:-84.43,g:2},
+ {nm:'Bogotá',wmo:'80222',icao:'SKBO',lat:4.70,lon:-74.15,g:2},
+ {nm:'Havana',wmo:'78325',icao:'MUHA',lat:22.99,lon:-82.41,g:2},
+ {nm:'Kingston',wmo:'78397',icao:'MKJP',lat:17.94,lon:-76.79,g:2},
+ {nm:'Miami',wmo:'72202',icao:'KMIA',lat:25.79,lon:-80.29,g:2},
+ {nm:'New York',wmo:'72503',icao:'KLGA',lat:40.78,lon:-73.87,g:2},
+ {nm:'Paramaribo',wmo:'81225',icao:'SMJP',lat:5.45,lon:-55.19,g:2},
+ {nm:'Port of Spain',wmo:'78970',icao:'TTPP',lat:10.60,lon:-61.34,g:2},
+ {nm:'San Juan',wmo:'78526',icao:'TJSJ',lat:18.44,lon:-66.00,g:2},
+ {nm:'Santo Domingo',wmo:'78486',icao:'MDSD',lat:18.43,lon:-69.67,g:2},
+ {nm:'Valencia',wmo:'80472',icao:'SVVA',lat:10.15,lon:-67.93,g:2}
+];
+function ovzWmoWeertype(code,cloud){
+  if(code!=null){ if(code>=95)return 'Onweer'; if(code>=80)return 'Regenbui'; if(code>=61)return 'Regen'; if(code>=51)return 'Motregen'; if(code===45||code===48)return 'Mist'; if(code===3)return 'Zwaar bewolkt'; if(code===2)return 'Half bewolkt'; if(code===1)return 'Licht bewolkt'; if(code===0)return 'Onbewolkt'; }
+  if(cloud!=null){ const N=Math.round(cloud/12.5); if(N<=0)return 'Onbewolkt'; if(N<=3)return 'Licht bewolkt'; if(N<=5)return 'Half bewolkt'; if(N<=7)return 'Zwaar bewolkt'; return 'Geheel bewolkt'; }
+  return null;
+}
+function ovzEffDate(){ const lt=new Date(Date.now()-4*3600e3); if(lt.getUTCHours()*60+lt.getUTCMinutes()<510) lt.setUTCDate(lt.getUTCDate()-1); return lt.toISOString().slice(0,10); }
+async function ovzFetchModel(lat,lon){
+  try{
+    const ac=new AbortController(); setTimeout(function(){ac.abort();},8000);
+    const r=await fetch('https://api.open-meteo.com/v1/forecast?latitude='+lat+'&longitude='+lon+'&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&current=weather_code,cloud_cover&past_days=1&forecast_days=1&timezone=auto',{signal:ac.signal});
+    if(!r.ok) return null; const j=await r.json(); const d=j.daily||{};
+    return {tmax:d.temperature_2m_max&&d.temperature_2m_max[0], tmin:d.temperature_2m_min&&d.temperature_2m_min[0], precip:d.precipitation_sum&&d.precipitation_sum[0], wt:ovzWmoWeertype(j.current&&j.current.weather_code, j.current&&j.current.cloud_cover), src:'O'};
+  }catch(e){ return null; }
+}
+function renderOvzTable(rows,eff){
+  const DAYS=['zondag','maandag','dinsdag','woensdag','donderdag','vrijdag','zaterdag'];
+  const MON=['januari','februari','maart','april','mei','juni','juli','augustus','september','oktober','november','december'];
+  const d=new Date(eff+'T12:00:00Z');
+  function cell(v,dec,src){ if(v==null||!isFinite(v)) return '<td>—</td>'; return '<td>'+(dec!=null?Number(v).toFixed(dec).replace('.',','):v)+(src?'<span class="ovz-src">'+src.toLowerCase()+'</span>':'')+'</td>'; }
+  function trow(r){ return '<tr><td class="l">'+r.nm+'</td><td>'+r.wmo+'</td><td>'+r.icao+'</td><td>'+(r.wt||'—')+'</td>'+cell(r.tmax,0,r.tsrc)+cell(r.tmin,0,r.tsrc)+cell(r.precip,1,r.psrc)+'</tr>'; }
+  document.getElementById('ovzBody').innerHTML='<div class="ovz-card"><div class="ovz-hd"><span class="ovz-ttl">OVERZICHT WEERSGESTELDHEID</span><span>QF-OBS-OW</span></div><div class="ovz-date">'+DAYS[d.getUTCDay()]+', '+d.getUTCDate()+' '+MON[d.getUTCMonth()]+' '+d.getUTCFullYear()+' · 08:00 uur Antilliaanse tijd</div><div class="ovz-wrap"><table class="ovz-tbl"><tr><th rowspan="2">Station</th><th rowspan="2">IIiii</th><th rowspan="2">CCCC</th><th rowspan="2">Weertype</th><th colspan="3">Afgelopen 24 uur</th></tr><tr><th>Max °C</th><th>Min °C</th><th>Neerslag mm</th></tr>'+rows.filter(function(r){return r.g===1;}).map(trow).join('')+'<tr class="ovz-gap"><td colspan="7"></td></tr>'+rows.filter(function(r){return r.g===2;}).map(trow).join('')+'</table></div><div class="ovz-foot">Bron: Open-Meteo (o). SYNOP/METAR keten uit het geüploade script volgt als die file in de repo staat.</div></div>';
+}
+async function buildOverzicht(force){
+  const eff=ovzEffDate();
+  if(!force){ try{ const c=JSON.parse(localStorage.getItem('rwc-ovz-v4')||'null'); if(c&&c.date===eff&&c.rows){ renderOvzTable(c.rows,eff); return; } }catch(e){} }
+  document.getElementById('ovzBody').textContent='Stationsdata ophalen…';
+  const rows=await Promise.all(OVZ_STATIONS.map(async function(s){
+    const row={nm:s.nm,wmo:s.wmo,icao:s.icao,g:s.g,wt:null,tmax:null,tmin:null,precip:null,tsrc:'',psrc:''};
+    const mod=await ovzFetchModel(s.lat,s.lon);
+    if(mod){ row.wt=mod.wt; row.tmax=mod.tmax; row.tmin=mod.tmin; row.precip=mod.precip; row.tsrc=row.psrc='O'; }
+    return row;
+  }));
+  try{ localStorage.setItem('rwc-ovz-v4', JSON.stringify({date:eff,rows:rows})); }catch(e){}
+  renderOvzTable(rows,eff);
+}
+window.buildOverzicht=buildOverzicht;
+document.addEventListener('DOMContentLoaded',function(){ buildOverzicht(false); });
+</script></body></html>
