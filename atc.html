@@ -1,1 +1,80 @@
-<!doctype html><meta charset=utf-8><title>ATC</title><style>body{margin:0;background:#0b1220}</style><iframe src="https://globe.adsbexchange.com/?lat=12.22&lon=-69.10&zoom=9" style="width:100%;height:70vh;border:0"></iframe><p style="color:#8ea0b8;font-family:sans-serif;padding:8px 12px">LiveATC: <a href="https://www.liveatc.net/search/?icao=TNCC" style="color:#55c1ff">TNCC</a> · <a href="https://www.liveatc.net/search/?icao=TNCA" style="color:#55c1ff">TNCA</a> · <a href="https://www.liveatc.net/search/?icao=TNCB" style="color:#55c1ff">TNCB</a></p>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RWCAPP · ATC</title>
+<style>
+:root{--bg:#0b1220;--acc:#55c1ff;--mut:#8ea0b8;--line:#243044}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:#e8eef8;font-family:ui-sans-serif,system-ui}
+.wrap{max-width:1100px;margin:0 auto;padding:12px}h1{font-size:18px;margin:0 0 10px}
+.atc-map-bar{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.atc-map-btns button{background:#1e3a5f;color:#fff;border:0;border-radius:8px;padding:6px 10px;margin-right:4px;cursor:pointer}
+.atc-map-hint{color:var(--mut);font-size:12px}
+.atc-map-wrap{position:relative;height:62vh;min-height:320px;border-radius:10px;overflow:hidden;border:1px solid var(--line);margin:8px 0}
+.atc-map-wrap iframe{width:100%;height:100%;border:0;background:#000}
+.adsb-link{color:var(--acc);text-decoration:none;font-weight:700}
+.atc-player{display:flex;align-items:center;gap:10px;background:#121a2b;border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0}
+.atc-play-btn{width:40px;height:40px;border:0;border-radius:50%;background:#1e3a5f;color:#fff;cursor:pointer}
+.atc-freq{color:var(--mut);font-size:12px}
+.atc-status{margin-left:auto;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--mut)}
+.atc-player.playing .atc-status{color:#39ff8a}
+.atc-player.loading .atc-status{color:#ffb347}
+.atc-player.error .atc-status{color:#ff6b6b}
+</style></head><body>
+<div class="wrap">
+<h1>Live ATC · ABC / TNCC</h1>
+<div class="atc-map-bar">
+  <div class="atc-map-btns">
+    <button type="button" onclick="atcMapMode('abc')">ABC</button>
+    <button type="button" onclick="atcMapMode('tncc')">TNCC</button>
+    <button type="button" onclick="atcMapMode('reload')">Reload</button>
+  </div>
+  <a class="adsb-link" href="https://globe.adsbexchange.com/?lat=12.22&lon=-69.10&zoom=9" target="_blank" rel="noopener">Open full map →</a>
+</div>
+<p class="atc-map-hint">Live traffic · ADS-B Exchange globe on ABC (TNCA / TNCB / TNCC)</p>
+<div class="atc-map-wrap">
+  <iframe id="atc-live-frame" title="Live ADS-B map" allow="fullscreen"
+    data-src="https://globe.adsbexchange.com/?lat=12.22&lon=-69.10&zoom=9" src="about:blank"></iframe>
+</div>
+<div style="font-weight:800;letter-spacing:1px;color:var(--acc);margin:10px 0 6px">LiveATC audio</div>
+<div id="atc-players"></div>
+</div>
+<script>
+function atcFrameUrl(lat,lon,zoom){return 'https://globe.adsbexchange.com/?lat='+lat+'&lon='+lon+'&zoom='+zoom;}
+function atcMapMode(mode){
+  const frame=document.getElementById('atc-live-frame'); if(!frame) return;
+  if(mode==='tncc') frame.src=atcFrameUrl(12.1889,-68.9597,11);
+  else if(mode==='abc') frame.src=atcFrameUrl(12.22,-69.10,9);
+  else if(mode==='reload'){ const s=frame.src; frame.src='about:blank'; setTimeout(function(){frame.src=s||atcFrameUrl(12.22,-69.10,9);},80); }
+}
+function buildATC(){
+  const cont=document.getElementById('atc-players'); if(!cont||cont.dataset.built==='1') return;
+  cont.dataset.built='1';
+  const streams=[
+    ['TNCC Tower','118.300 MHz','https://d.liveatc.net/tncc_twr',['https://d.liveatc.net/tncc']],
+    ['TNCC Control','127.100 / 124.100 MHz','https://d.liveatc.net/tncc_ctr',['https://d.liveatc.net/tncc_app']],
+    ['TNCC Terminal','119.800 MHz','https://d.liveatc.net/tncc_app',[]],
+    ['TNCA Aruba Tower','118.000 MHz','https://d.liveatc.net/tnca',[]],
+    ['TNCB Bonaire Tower','118.700 MHz','https://d.liveatc.net/tncb',[]]
+  ];
+  streams.forEach(function(row){
+    const label=row[0],freq=row[1],url=row[2],alts=row[3];
+    const card=document.createElement('div'); card.className='atc-player';
+    card.innerHTML='<button class="atc-play-btn">▶</button><div><div style="color:#55c1ff;font-weight:700">'+label+'</div><div class="atc-freq">'+freq+'</div></div><div class="atc-status">Idle</div>';
+    cont.appendChild(card);
+    const btn=card.querySelector('.atc-play-btn'), st=card.querySelector('.atc-status');
+    const audio=new Audio(); audio.preload='none'; audio.volume=0.8;
+    const urls=[url].concat(alts||[]); let ui=0;
+    function setS(s){ card.className='atc-player'+(s?' '+s:''); btn.textContent=s==='playing'?'■':'▶'; st.textContent=s==='loading'?'Connecting':(s==='playing'?'Live':(s==='error'?'Error':'Idle')); }
+    audio.addEventListener('playing',function(){setS('playing');});
+    audio.addEventListener('error',function(){setS('error');});
+    function tryPlay(){ audio.src=urls[ui]+'?t='+Date.now(); setS('loading'); audio.play().catch(function(){ ui++; if(ui<urls.length) tryPlay(); else setS('error'); }); }
+    btn.addEventListener('click',function(){ if(audio.paused){ ui=0; tryPlay(); } else { audio.pause(); audio.src=''; setS(''); } });
+  });
+}
+document.addEventListener('DOMContentLoaded',function(){
+  const f=document.getElementById('atc-live-frame'); if(f) f.src=f.getAttribute('data-src');
+  buildATC();
+});
+</script></body></html>
