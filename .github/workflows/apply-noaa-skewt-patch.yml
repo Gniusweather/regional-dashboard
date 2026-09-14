@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
+      - patches/drop_vaisala_add_daysummary.py
 permissions:
   contents: write
 jobs:
@@ -11,18 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Write working module pages
+      - name: Drop Vaisala and add Day summary
         run: |
-          python3 << 'PY'
-          from pathlib import Path
-          sw=Path('sw.js').read_text().replace('rwc-shell-v21','rwc-shell-v22').replace('rwc-shell-v20','rwc-shell-v22')
-          if './overzicht.html' not in sw:
-              sw=sw.replace("'./favicon-32.png'", "'./favicon-32.png',\n  './atc.html',\n  './encoders.html',\n  './overzicht.html'")
-          Path('sw.js').write_text(sw)
-          print('sw', [ln for ln in sw.splitlines() if 'CACHE' in ln][0])
-          PY
+          python3 patches/drop_vaisala_add_daysummary.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v22','rwc-shell-v23').replace('rwc-shell-v21','rwc-shell-v23'); p.write_text(t); print(t.splitlines()[1])"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add sw.js
-          git diff --cached --quiet || git commit -m 'Bump SW to v22 for ATC/encoder/Overzicht'
+          git add encoders.html index.html sw.js
+          git diff --cached --quiet || git commit -m 'Remove Vaisala from encoder; add SYNOP Day summary'
           git push
