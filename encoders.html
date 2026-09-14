@@ -118,7 +118,6 @@ select.enc-inp option{background:#0d1f36;color:#e8f4ff;}
 <div class="subnav">
 <button type="button" class="active" onclick="showEnc('encode',this)">Encode</button>
 <button type="button" onclick="showEnc('sutron',this)">Sutron</button>
-<button type="button" onclick="showEnc('vaisala',this)">Vaisala</button>
 </div>
 <div class="sub-panel active" id="synop-sub-encode">
         <div style="padding:10px;">
@@ -1050,73 +1049,7 @@ select.enc-inp option{background:#0d1f36;color:#e8f4ff;}
         </div>
       </div>
 
-            <div class="sub-panel" id="synop-sub-vaisala">
-        <div class="va-wrap">
-          <div class="va-bar">SYNOP Template · AviMet / Vaisala</div>
-          <div class="va-src" id="va-src"></div>
-          <div class="va-head">
-            <div>SYNOP &nbsp; <span id="va-clock"></span></div>
-            <div>Wind Speed
-              <label><input type="radio" name="va-iw" value="3" onchange="vaUpdate()"> Estimate</label>
-              <label><input type="radio" name="va-iw" value="4" checked onchange="vaUpdate()"> Obtained from anemometer</label>
-            </div>
-          </div>
-          <div class="va-sec">
-            <h4>SECTION 0</h4>
-            <div class="va-row">
-              <div class="va-f"><label>MiMiMjMj</label><input id="va-mi" value="AAXX" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>YYGGiw</label><input id="va-yygg" maxlength="5" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>IIiii</label><input id="va-ii" value="78988" maxlength="5" oninput="vaUpdate()"></div>
-            </div>
-          </div>
-          <div class="va-sec">
-            <h4>SECTION 1</h4>
-            <div class="va-row">
-              <div class="va-f"><label>hVV</label><input id="va-hvv" value="" maxlength="5" oninput="vaUpdate()"><input id="va-hvv2" placeholder="decoded" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>Nddff</label><input id="va-ndd" value="" maxlength="5" oninput="vaUpdate()"><span><input id="va-dddeg" maxlength="3" style="width:48px" oninput="vaUpdate()"> <input id="va-ffkt" maxlength="3" style="width:40px" oninput="vaUpdate()"></span></div>
-              <div class="va-f"><label>00fff</label><input id="va-fff" value="" maxlength="5" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>1snTTT</label><input id="va-t" value="" maxlength="4" oninput="vaUpdate()"><input id="va-tdec" placeholder="°C" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>2snTdTdTd</label><input id="va-td" value="" maxlength="4" oninput="vaUpdate()"><input id="va-tddec" placeholder="°C" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>29UUU</label><input id="va-rh" value="" maxlength="3" oninput="vaUpdate()"><input id="va-rhdec" placeholder="%" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>3P0P0P0P0</label><input id="va-p0" value="" maxlength="4" oninput="vaUpdate()"><input id="va-p0dec" placeholder="hPa" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>4PPPP</label><input id="va-p" value="" maxlength="4" oninput="vaUpdate()"><input id="va-pdec" placeholder="hPa" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>5appp</label><input id="va-a" value="" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>6RRRtR</label><input id="va-rr" value="" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>7wwW1W2</label><input id="va-ww" value="" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>8NhCLCMCH</label><input id="va-cld" value="" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>9GGgg</label><input id="va-9" value="" maxlength="4" oninput="vaUpdate()"></div>
-            </div>
-          </div>
-          <div class="va-sec">
-            <h4>SECTION 3</h4>
-            <div class="va-row">
-              <div class="va-f"><label>1snTxTxTx</label><input id="va-tx" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>2snTnTnTn</label><input id="va-tn" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>3EsnT</label><input id="va-3e" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>4E'sss</label><input id="va-4e" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>55SSS</label><input id="va-55" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>5XP24</label><input id="va-p24" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>6RRRtR</label><input id="va-s3rr" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>7R24R24</label><input id="va-r24" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>8NsChshs</label><input id="va-c1" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>8NsChshs</label><input id="va-c2" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>8NsChshs</label><input id="va-c3" maxlength="4" oninput="vaUpdate()"></div>
-              <div class="va-f"><label>8NsChshs</label><input id="va-c4" maxlength="4" oninput="vaUpdate()"></div>
-            </div>
-          </div>
-          <div class="va-out" id="va-out">Coded report of complete Synop</div>
-          <div class="va-actions">
-            <button type="button" id="va-prefill" onclick="tplPrefill('va')">PREFILL</button>
-            <button type="button" id="va-auto" onclick="tplAuto('va')">AUTO</button>
-            <button type="button" onclick="vaUpdate()">Build</button>
-            <button type="button" onclick="tplCopy('va-out')">Copy</button>
-            <button type="button" onclick="tplCopy('va-out')">Ack</button>
-          </div>
-        </div>
-      </div>
-<div class="sub-panel" 
-</div>
-<script>
+            <script>
 
 function $(id){return document.getElementById(id);}
 function byId(id){return document.getElementById(id);}
@@ -3795,7 +3728,7 @@ function showEnc(name,btn){
     p.style.display=on?'block':'none';
   });
   document.querySelectorAll('.subnav button').forEach(function(b){b.classList.toggle('active',b===btn);});
-  try{if(name==='sutron'){tplFillFromEnc('su');suUpdate();} if(name==='vaisala'){tplFillFromEnc('va');vaUpdate();} if(name==='encode')encUpdate();}catch(e){}
+  try{if(name==='sutron'){tplFillFromEnc('su');suUpdate();} if(name==='encode')encUpdate();}catch(e){}
 }
 document.addEventListener('DOMContentLoaded',function(){
   document.querySelectorAll('.synop-sub').forEach(function(p){

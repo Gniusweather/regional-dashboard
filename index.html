@@ -1478,12 +1478,14 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
         <div class="section-controls" style="display:flex;gap:6px;flex-wrap:wrap">
           <button type="button" class="btn-primary" id="synop-sub-reports" onclick="synopSub('reports')" style="font-size:12px;height:28px;padding:4px 10px">Reports</button>
           <button type="button" class="btn-primary" id="synop-sub-encode" onclick="synopSub('encode')" style="font-size:12px;height:28px;padding:4px 10px;opacity:.75">Encode</button>
+          <button type="button" class="btn-primary" id="synop-sub-day" onclick="synopSub('day')" style="font-size:12px;height:28px;padding:4px 10px;opacity:.75">Day summary</button>
         </div>
         <div class="section-controls">
           <button id="synop-refresh-btn" class="btn-primary" style="font-size:13px;height:30px;padding:6px 12px;" title="Load SYNOPs">↻ Load SYNOPs</button>
         </div>
       </div>
       <div class="table-card">
+        <div id="synop-day-wrap" style="display:none;height:min(78vh,820px);border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px"><iframe src="overzicht.html" title="Day summary" style="width:100%;height:100%;border:0;background:#fff"></iframe></div>
         <div id="synop-encode-wrap" style="display:none;height:min(78vh,820px);border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px"><iframe src="encoders.html" title="SYNOP encoder" style="width:100%;height:100%;border:0;background:#0b1220"></iframe></div>
         <div id="synop-table">
           <div id="synop"></div>
@@ -4431,14 +4433,19 @@ const contentWrapperEl=document.querySelector('.content-wrapper');
 
 function synopSub(which){
   const enc=document.getElementById('synop-encode-wrap');
+  const day=document.getElementById('synop-day-wrap');
   const tbl=document.getElementById('synop-table');
   const bar=document.getElementById('synop-updated');
   if(enc) enc.style.display=which==='encode'?'block':'none';
-  if(tbl) tbl.style.display=which==='encode'?'none':'block';
-  if(bar) bar.style.display=which==='encode'?'none':'block';
-  const a=document.getElementById('synop-sub-encode'), b=document.getElementById('synop-sub-reports');
+  if(day) day.style.display=which==='day'?'block':'none';
+  if(tbl) tbl.style.display=(which==='encode'||which==='day')?'none':'block';
+  if(bar) bar.style.display=(which==='encode'||which==='day')?'none':'block';
+  const a=document.getElementById('synop-sub-encode');
+  const b=document.getElementById('synop-sub-reports');
+  const c=document.getElementById('synop-sub-day');
   if(a) a.style.opacity=which==='encode'?'1':'.75';
-  if(b) b.style.opacity=which==='encode'?'.75':'1';
+  if(b) b.style.opacity=which==='reports'?'1':'.75';
+  if(c) c.style.opacity=which==='day'?'1':'.75';
 }
 function stationsSub(which){
   const ovz=document.getElementById('ovz-wrap');
