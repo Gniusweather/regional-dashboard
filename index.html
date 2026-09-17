@@ -4898,7 +4898,7 @@ function drawSkewT(canvas,profile,meta,opt){
   const prof=(profile||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>b.p-a.p);
 
   ctx.clearRect(0,0,cssW,cssH);
-  ctx.fillStyle=(opt&&opt.bw)?'#ffffff':'#e8f4ea';ctx.fillRect(0,0,cssW,cssH);
+  ctx.fillStyle='#ffffff';ctx.fillRect(0,0,cssW,cssH);
 
   ctx.save();
   ctx.beginPath();ctx.rect(g.pad.l,g.pad.t,g.plotW,g.plotH);ctx.clip();
@@ -4913,7 +4913,7 @@ function drawSkewT(canvas,profile,meta,opt){
   });
 
   // Isotherms — grey solid, running bottom-left to top-right.
-  ctx.strokeStyle='rgba(130,130,130,0.75)';ctx.lineWidth=1;
+  ctx.strokeStyle='rgba(20,160,70,0.45)';ctx.lineWidth=1;
   for(let T=-140;T<=60;T+=10){
     ctx.beginPath();
     ctx.moveTo(g.xOf(T,g.PBOT),g.yOf(g.PBOT));
@@ -4978,7 +4978,7 @@ function drawSkewT(canvas,profile,meta,opt){
   const parcel=sondeSurfaceParcel(profile);
   if(parcel){
     sondeShadeParcelArea(ctx,g,parcel.envT,parcel.parcelT,parcel.P0,parcel.Ptop);
-    ctx.strokeStyle='rgba(150,80,20,0.9)';ctx.lineWidth=1.6;ctx.setLineDash([]);
+    ctx.strokeStyle='#1d4ed8';ctx.lineWidth=2;ctx.setLineDash([]);
     ctx.beginPath();
     for(let P=parcel.P0;P>=parcel.Ptop;P-=10){
       const x=g.xOf(parcel.parcelT(P),P),y=g.yOf(P);
@@ -5119,11 +5119,16 @@ function drawSkewT(canvas,profile,meta,opt){
     const trendGlyph={'↑':' ↑','↓':' ↓','→':' →'};
     const rows=[];
     if(idx.cape!=null)rows.push(['CAPE',Math.round(idx.cape)+' J/kg'+(trendGlyph[tr.cape]||'')]);
-    if(idx.cin!=null)rows.push(['CIN',Math.round(idx.cin)+' J/kg'+(trendGlyph[tr.cin]||'')]);
+    if(idx.cin!=null)rows.push(['CIN',Math.abs(Math.round(idx.cin))+' J/kg'+(trendGlyph[tr.cin]||'')]);
     if(idx.li!=null)rows.push(['LI',idx.li.toFixed(1)+(trendGlyph[tr.li]||'')]);
     if(idx.k!=null)rows.push(['K',idx.k.toFixed(0)+(trendGlyph[tr.k]||'')]);
     if(idx.tt!=null)rows.push(['TT',idx.tt.toFixed(0)+(trendGlyph[tr.tt]||'')]);
-    if(idx.pw!=null)rows.push(['PW',idx.pw.toFixed(0)+' mm'+(trendGlyph[tr.pw]||'')]);
+    if(idx.pw!=null)rows.push(['PW',idx.pw.toFixed(0)+' mm / '+(idx.pw/25.4).toFixed(2)+' in'+(trendGlyph[tr.pw]||'')]);
+    if(idx.si!=null)rows.push(['SI',Number(idx.si).toFixed(1)]);
+    if(idx.sweat!=null)rows.push(['SW',String(Math.round(idx.sweat))]);
+    if(idx.lcl!=null)rows.push(['LCL',Math.round(idx.lcl)+' hPa']);
+    if(idx.lfc!=null)rows.push(['LFC',Math.round(idx.lfc)+' hPa']);
+    if(idx.el!=null)rows.push(['EL',Math.round(idx.el)+' hPa']);
     if(idx.freezingLevel){
       const fz=idx.freezingLevel;
       const ft=fz.hgt!=null?fz.hgt*3.28084:(fz.p!=null?(1-Math.pow(Math.max(50,fz.p)/1013.25,0.190284))*145366.45:null);
@@ -5560,41 +5565,57 @@ function sondeCapeCin(parcel){
   const {prof,P0,Ptop,Plcl,parcelT,parcelW,envT,envTd}=parcel;
   const Rd=287.05, g=9.80665;
   const levels=new Set([P0]);
-  prof.forEach(r=>{ if(r.p<P0&&r.p>=Ptop) levels.add(r.p); });
+  for(let P=P0;P>=Math.max(Ptop,100);P-=10) levels.add(P);
+  prof.forEach(r=>{ if(r.p<=P0&&r.p>=Ptop) levels.add(r.p); });
   if(Plcl<P0&&Plcl>Ptop) levels.add(Plcl);
   const uniq=[...levels].sort((a,b)=>b-a);
-  const layers=[];
-  for(let i=0;i<uniq.length-1;i++){
-    const Pa=uniq[i],Pb=uniq[i+1];
-    const TaEnv=envT(Pa),TbEnv=envT(Pb);
-    if(TaEnv==null||TbEnv==null||Pa===Pb)continue;
-    const TaEnvV=sondeVirtualT(TaEnv,envTd(Pa)!=null?sondeMixR(envTd(Pa),Pa):0);
-    const TbEnvV=sondeVirtualT(TbEnv,envTd(Pb)!=null?sondeMixR(envTd(Pb),Pb):0);
-    const TaP=parcelT(Pa),TbP=parcelT(Pb);
-    const TaPV=sondeVirtualT(TaP,parcelW(Pa)), TbPV=sondeVirtualT(TbP,parcelW(Pb));
-    const TvAvgK=(TaEnvV+TbEnvV)/2+273.15;
-    const dz=Rd*TvAvgK/g*Math.log(Pa/Pb);
-    const dT=((TaPV-TaEnvV)+(TbPV-TbEnvV))/2;
-    layers.push({dE:g*dT/TvAvgK*dz});
+  const samples=[];
+  for(const P of uniq){
+    const Te=envT(P), Tp=parcelT(P);
+    if(Te==null||Tp==null) continue;
+    const TeV=sondeVirtualT(Te,envTd(P)!=null?sondeMixR(envTd(P),P):0);
+    const TpV=sondeVirtualT(Tp,parcelW(P));
+    samples.push({P,dT:TpV-TeV,Tv:TeV});
   }
-  let CAPE=0,CIN=0,bestSum=0,bestStart=-1,i=0;
-  while(i<layers.length){
-    if(layers[i].dE>0){
-      let j=i,sum=0;
-      while(j<layers.length&&layers[j].dE>0){ sum+=layers[j].dE; j++; }
-      if(sum>bestSum){ bestSum=sum; bestStart=i; }
-      i=j;
-    } else i++;
+  let LFC=null,EL=null;
+  for(let i=1;i<samples.length;i++){
+    if(samples[i-1].dT<=0 && samples[i].dT>0 && samples[i].P<=Plcl+1){
+      const f=samples[i-1].dT/(samples[i-1].dT-samples[i].dT||1e-6);
+      LFC=samples[i-1].P+(samples[i].P-samples[i-1].P)*f;
+      break;
+    }
   }
-  CAPE=bestSum;
-  if(bestStart>0) for(let k=0;k<bestStart;k++) if(layers[k].dE<0) CIN+=layers[k].dE;
-  return {CAPE,CIN};
+  if(LFC==null){
+    const firstPos=samples.find(s=>s.dT>0 && s.P<=Plcl);
+    if(firstPos) LFC=firstPos.P;
+  }
+  if(LFC!=null){
+    for(let i=1;i<samples.length;i++){
+      if(samples[i-1].P<=LFC && samples[i-1].dT>0 && samples[i].dT<=0){
+        const f=samples[i-1].dT/(samples[i-1].dT-samples[i].dT||1e-6);
+        EL=samples[i-1].P+(samples[i].P-samples[i-1].P)*f;
+      }
+    }
+  }
+  let CAPE=0,CIN=0;
+  for(let i=0;i<samples.length-1;i++){
+    const a=samples[i], b=samples[i+1];
+    if(a.P===b.P) continue;
+    const TvAvgK=(a.Tv+b.Tv)/2+273.15;
+    const dz=Rd*TvAvgK/g*Math.log(a.P/b.P);
+    const dT=(a.dT+b.dT)/2;
+    const dE=g*dT/TvAvgK*dz;
+    const pmid=(a.P+b.P)/2;
+    if(LFC!=null && pmid<=LFC && (EL==null || pmid>=EL) && dE>0) CAPE+=dE;
+    if((LFC==null || pmid>=LFC) && dE<0) CIN+=dE;
+  }
+  return {CAPE,CIN,LFC,EL};
 }
 function sondeComputeIndices(profileRaw){
   const parcel=sondeSurfaceParcel(profileRaw);
   if(!parcel||parcel.prof.length<5) return null;
   const {prof,Plcl,parcelT,envT}=parcel;
-  const {CAPE,CIN}=sondeCapeCin(parcel);
+  const {CAPE,CIN,LFC,EL}=sondeCapeCin(parcel);
 
   // K-index / Total Totals need T & Td at the 850/700/500 hPa mandatory levels.
   const T850=envT(850),T700=envT(700),T500=envT(500);
@@ -5602,6 +5623,26 @@ function sondeComputeIndices(profileRaw){
   const K=(T850!=null&&T500!=null&&Td850!=null&&T700!=null&&Td700!=null)?(T850-T500)+Td850-(T700-Td700):null;
   const TT=(T850!=null&&Td850!=null&&T500!=null)?(T850+Td850)-2*T500:null;
   const LI=(T500!=null)?(T500-parcelT(500)):null;
+  let SI=null;
+  if(T850!=null&&Td850!=null&&T500!=null){
+    const p850=sondeParcelAscent(prof,850,100,T850,Td850);
+    if(p850) SI=+(T500-p850.parcelT(500)).toFixed(1);
+  }
+  const f850=sondeInterpEnv(prof,850,'sknt'), f500=sondeInterpEnv(prof,500,'sknt');
+  const d850=sondeInterpEnv(prof,850,'drct'), d500=sondeInterpEnv(prof,500,'drct');
+  let SWEAT=null;
+  if(Td850!=null&&TT!=null){
+    const termTd=12*Math.max(Td850,0);
+    const termTT=20*Math.max(TT-49,0);
+    const termF2=2*(f850||0)+(f500||0);
+    let shear=0;
+    if(d850!=null&&d500!=null&&f850!=null&&f500!=null&&f850>=15&&f500>=15){
+      const ang=((d500-d850)+360)%360;
+      const s=Math.sin(ang*Math.PI/180);
+      if(s>0) shear=125*(s+0.2);
+    }
+    SWEAT=Math.round(termTd+termTT+termF2+shear);
+  }
 
   // Precipitable water — integrate mixing ratio over pressure while
   // dewpoint is still reported, stopping once it runs out aloft. Levels
@@ -5622,10 +5663,14 @@ function sondeComputeIndices(profileRaw){
   return {
     CAPE:Math.round(CAPE), CIN:Math.round(CIN),
     LI:LI!=null?+LI.toFixed(1):null,
+    SI:SI,
     K:K!=null?Math.round(K):null,
     TT:TT!=null?Math.round(TT):null,
+    SWEAT:SWEAT,
     PW:PW>0?+PW.toFixed(1):null,
-    LCL:Math.round(Plcl) // hPa
+    LCL:Math.round(Plcl),
+    LFC:LFC!=null?Math.round(LFC):null,
+    EL:EL!=null?Math.round(EL):null
   };
 }
 /* Merge our own computed indices (preferred, always consistent with the
@@ -5641,6 +5686,10 @@ function sondeMergedIndices(scrapedInd,profile){
   if(c.TT!=null)merged['Totals totals index']=c.TT;
   if(c.PW!=null)merged['Precipitable water [mm]']=c.PW;
   if(c.LCL!=null)merged['Pres [hPa] of the Lifted Condensation Level']=c.LCL;
+  if(c.SI!=null)merged['Showalter index']=c.SI;
+  if(c.SWEAT!=null)merged['SWEAT index']=c.SWEAT;
+  if(c.LFC!=null)merged['LFC hPa']=c.LFC;
+  if(c.EL!=null)merged['EL hPa']=c.EL;
   // Drop scraped keys that are aliases of something we just computed. An
   // exact-key check isn't enough: sondeVal() matches on substrings, so e.g.
   // Wyoming's "LIFT computed using virtual temperature" is a distinct key
@@ -5949,6 +5998,11 @@ function renderRadiosonde(opts){
   const kV=sondeVal(ind,['K index']);
   const ttV=sondeVal(ind,['Totals totals']);
   const pwV=sondeVal(ind,['Precipitable water']);
+  const siV=sondeVal(ind,['Showalter index']);
+  const swV=sondeVal(ind,['SWEAT index']);
+  const lclV=sondeVal(ind,['Pres [hPa] of the Lifted']);
+  const lfcV=sondeVal(ind,['LFC hPa']);
+  const elV=sondeVal(ind,['EL hPa']);
   // Trend vs. the previous cycle — null (no arrow) when there's nothing to
   // compare against yet, e.g. the very first sounding load this session.
   const trend=prevInd?{
@@ -6010,7 +6064,7 @@ function renderRadiosonde(opts){
       coords:`Latitude: ${SONDE_LAT.toFixed(3)} Longitude: ${SONDE_LON.toFixed(3)}`,
       summary:{headline:a.headline,text:a.text},
       indices:{
-        cape:capeV,cin:cinV,li:liV,k:kV,tt:ttV,pw:pwV,
+        cape:capeV,cin:cinV,li:liV,k:kV,tt:ttV,pw:pwV,si:siV,sweat:swV,lcl:lclV,lfc:lfcV,el:elV,
         trend,
         freezingLevel
       },
