@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/day_summary_78988.py
+      - patches/fix_cape_cod.py
 permissions:
   contents: write
 jobs:
@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Wire 78988 day SYNOP summary
+      - name: Match COD CAPE and Skew-T style
         run: |
-          python3 patches/day_summary_78988.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v24','rwc-shell-v25').replace('rwc-shell-v23','rwc-shell-v25'); p.write_text(t); print(t.splitlines()[1])"
+          python3 patches/fix_cape_cod.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v25','rwc-shell-v26').replace('rwc-shell-v24','rwc-shell-v26'); p.write_text(t); print(t.splitlines()[1])"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
           git diff --cached --stat
-          git diff --cached --quiet || git commit -m 'Day summary: all 78988 SYNOPs for the UTC day'
+          git diff --cached --quiet || git commit -m 'Skew-T: COD-style parcel CAPE LFC-EL, blue parcel, extra indices'
           git push
