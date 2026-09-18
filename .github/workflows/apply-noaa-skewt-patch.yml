@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/wyoming_cape.py
+      - patches/revert_style.py
 permissions:
   contents: write
 jobs:
@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Wyoming chart + theta-e CAPE
+      - name: Restore red/green traces and feet
         run: |
-          python3 patches/wyoming_cape.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v30','rwc-shell-v31').replace('rwc-shell-v29','rwc-shell-v31'); p.write_text(t); print(t.splitlines()[1])"
+          python3 patches/revert_style.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v31','rwc-shell-v32').replace('rwc-shell-v30','rwc-shell-v32'); p.write_text(t); print(t.splitlines()[1])"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
           git diff --cached --stat
-          git diff --cached --quiet || git commit -m 'Skew-T Wyoming style; CAPE from conserved theta-e'
+          git diff --cached --quiet || git commit -m 'Restore Skew-T red/green traces and heights in feet'
           git push
