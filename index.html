@@ -5118,7 +5118,7 @@ function drawSkewT(canvas,profile,meta,opt){
     const tr=idx.trend||{};
     const trendGlyph={'↑':' ↑','↓':' ↓','→':' →'};
     const rows=[];
-    if(idx.cape!=null)rows.push(['CAPE',Math.round(idx.cape)+' J/kg'+(trendGlyph[tr.cape]||'')]);
+    if(idx.cape!=null)rows.push(['MUCAPE',Math.round(idx.cape)+' J/kg'+(trendGlyph[tr.cape]||'')]);
     if(idx.cin!=null)rows.push(['CIN',Math.abs(Math.round(idx.cin))+' J/kg'+(trendGlyph[tr.cin]||'')]);
     if(idx.li!=null)rows.push(['LI',idx.li.toFixed(1)+(trendGlyph[tr.li]||'')]);
     if(idx.k!=null)rows.push(['K',idx.k.toFixed(0)+(trendGlyph[tr.k]||'')]);
@@ -5611,11 +5611,41 @@ function sondeCapeCin(parcel){
   }
   return {CAPE,CIN,LFC,EL};
 }
+
+function sondeThetaE(T,Td,P){
+  if(T==null||Td==null||P==null) return null;
+  const w=sondeMixR(Td,P)/1000;
+  let Tlcl=T, Plcl=P;
+  const th=sondeTheta(T,P);
+  for(let p=P;p>=100;p-=2){
+    const Tp=sondeTOnDryAdiabat(th,p);
+    Tlcl=Tp; Plcl=p;
+    if(sondeMixR(Tp,p)<=sondeMixR(Td,P)) break;
+  }
+  return (th+273.15)*Math.exp((2.501e6*w)/((1005.7)*(Tlcl+273.15)))-273.15;
+}
+function sondeMostUnstableParcel(profileRaw){
+  const prof=(profileRaw||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)&&r.td!=null).sort((a,b)=>b.p-a.p);
+  if(prof.length<3) return sondeSurfaceParcel(profileRaw);
+  const Pbot=prof[0].p;
+  const Pcut=Pbot-300;
+  let best=null, bestTe=-1e9;
+  prof.forEach(r=>{
+    if(r.p<Pcut) return;
+    const te=sondeThetaE(r.t,r.td,r.p);
+    if(te!=null && te>bestTe){ bestTe=te; best=r; }
+  });
+  if(!best) return sondeSurfaceParcel(profileRaw);
+  const Ptop=Math.min.apply(null, (profileRaw||[]).filter(r=>isFinite(r.p)).map(r=>r.p));
+  return sondeParcelAscent((profileRaw||[]).filter(r=>isFinite(r.p)&&isFinite(r.t)).sort((a,b)=>b.p-a.p), best.p, Ptop, best.t, best.td);
+}
 function sondeComputeIndices(profileRaw){
-  const parcel=sondeSurfaceParcel(profileRaw);
+  const sfc=sondeSurfaceParcel(profileRaw);
+  const parcel=sondeMostUnstableParcel(profileRaw)||sfc;
   if(!parcel||parcel.prof.length<5) return null;
   const {prof,Plcl,parcelT,envT}=parcel;
   const {CAPE,CIN,LFC,EL}=sondeCapeCin(parcel);
+  const sfcCape=sfc?sondeCapeCin(sfc):null;
 
   // K-index / Total Totals need T & Td at the 850/700/500 hPa mandatory levels.
   const T850=envT(850),T700=envT(700),T500=envT(500);
@@ -5623,6 +5653,13 @@ function sondeComputeIndices(profileRaw){
   const K=(T850!=null&&T500!=null&&Td850!=null&&T700!=null&&Td700!=null)?(T850-T500)+Td850-(T700-Td700):null;
   const TT=(T850!=null&&Td850!=null&&T500!=null)?(T850+Td850)-2*T500:null;
   const LI=(T500!=null)?(T500-parcelT(500)):null;
+  let LFVT=null;
+  if(T500!=null){
+    const Td500=sondeInterpEnv(prof,500,'td');
+    const envV=sondeVirtualT(T500,Td500!=null?sondeMixR(Td500,500):0);
+    const parV=sondeVirtualT(parcelT(500),parcel.parcelW?parcel.parcelW(500):sondeMixR(parcelT(500),500));
+    LFVT=+(envV-parV).toFixed(1);
+  }
   let SI=null;
   if(T850!=null&&Td850!=null&&T500!=null){
     const p850=sondeParcelAscent(prof,850,100,T850,Td850);
@@ -5662,8 +5699,9 @@ function sondeComputeIndices(profileRaw){
 
   return {
     CAPE:Math.round(CAPE), CIN:Math.round(CIN),
-    LI:LI!=null?+LI.toFixed(1):null,
+    LI:LFVT!=null?LFVT:(LI!=null?+LI.toFixed(1):null),
     SI:SI,
+    SBCAPE:sfcCape&&sfcCape.CAPE!=null?Math.round(sfcCape.CAPE):null,
     K:K!=null?Math.round(K):null,
     TT:TT!=null?Math.round(TT):null,
     SWEAT:SWEAT,
