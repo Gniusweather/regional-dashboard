@@ -244,29 +244,28 @@ function parseNoaaTempParts(parts){
   for(const m of maps){
     for(const [k,v] of m) sondeTempMergeLevel(merged,k,v);
   }
-  let profile=[...merged.values()].filter(lv=>{
-      if(!(lv.p>=100&&lv.p<=1075)) return false;
-      if(lv.t!=null && (lv.t>50||lv.t<-90)) return false;
-      return lv.t!=null || lv.td!=null || lv.drct!=null;
-    }).sort((a,b)=>b.p-a.p);
+  function sondeLevelOk(lv){
+    if(!(lv.p>=100&&lv.p<=1075)) return false;
+    if(lv.t==null||!isFinite(lv.t)) return false;
+    if(lv.t>40||lv.t<-90) return false;
+    if(lv.p<=850 && lv.t>35) return false;
+    if(lv.p<=500 && lv.t>10) return false;
+    if(lv.p<=300 && lv.t>0) return false;
+    if(lv.td!=null && lv.td>lv.t+0.6) lv.td=lv.t;
+    return true;
+  }
+  let profile=[...merged.values()].filter(sondeLevelOk).sort((a,b)=>b.p-a.p);
   const pp=[...(parts.PPBB?parseTempPP(parts.PPBB):[]), ...(parts.PPDD?parseTempPP(parts.PPDD):[])];
   pp.forEach(w=>{
     const p=sondePFromHeightM(profile, w.hft*0.3048);
     if(p==null) return;
     let best=null, dBest=1e9;
     profile.forEach(lv=>{ const d=Math.abs(lv.p-p); if(d<dBest){ dBest=d; best=lv; } });
-    if(best && dBest<=12){
+    if(best && dBest<=15){
       if(best.drct==null) best.drct=w.drct;
       if(best.sknt==null) best.sknt=w.sknt;
-    } else {
-      sondeTempMergeLevel(merged,p,{drct:w.drct,sknt:w.sknt});
     }
   });
-  profile=[...merged.values()].filter(lv=>{
-      if(!(lv.p>=100&&lv.p<=1075)) return false;
-      if(lv.t!=null && (lv.t>50||lv.t<-90)) return false;
-      return lv.t!=null || lv.td!=null || lv.drct!=null;
-    }).sort((a,b)=>b.p-a.p);
   if(profile.length<8) return null;
   const meta=sondeTempHeaderMeta(parts.TTAA||parts.TTBB||'');
   let obsTime=null, dt=null;

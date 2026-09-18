@@ -5042,8 +5042,16 @@ function drawSkewT(canvas,profile,meta,opt){
     }
     ctx.strokeStyle='#d21f1f';
     ctx.beginPath();
-    prof.forEach((r,i)=>{ const x=g.xOf(r.t,r.p),y=g.yOf(r.p); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
-    ctx.stroke();
+    const tPts=prof.filter(r=>isFinite(r.t)&&isFinite(r.p)&&r.t<=40&&!(r.p<=500&&r.t>10)&&!(r.p<=300&&r.t>0));
+    tPts.forEach((r,i)=>{
+      if(i>0&&i<tPts.length-1){
+        const prev=tPts[i-1], next=tPts[i+1];
+        if(Math.abs(r.t-prev.t)>18 && Math.abs(r.t-next.t)>18) return;
+      }
+      const x=g.xOf(r.t,r.p),y=g.yOf(r.p); ctx.lineTo?null:null;
+      i===0||!ctx._tStarted?(ctx.moveTo(x,y),ctx._tStarted=1):ctx.lineTo(x,y);
+    });
+    ctx.stroke(); ctx._tStarted=0;
   }
   ctx.restore();
 
@@ -5692,7 +5700,7 @@ function sondeComputeIndices(profileRaw){
   let PW=0,started=false;
   for(let i=0;i<prof.length-1;i++){
     const a=prof[i],b=prof[i+1];
-    if(a.td==null||b.td==null){ if(started)break; continue; }
+    if(a.td==null||b.td==null||a.t==null||b.t==null){ continue; }
     started=true;
     PW+=0.0102*((sondeMixR(a.td,a.p)+sondeMixR(b.td,b.p))/2)*(a.p-b.p);
   }
