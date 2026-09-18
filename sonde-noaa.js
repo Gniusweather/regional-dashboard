@@ -247,11 +247,8 @@ function parseNoaaTempParts(parts){
   function sondeLevelOk(lv){
     if(!(lv.p>=100&&lv.p<=1075)) return false;
     if(lv.t==null||!isFinite(lv.t)) return false;
-    if(lv.t>40||lv.t<-90) return false;
-    if(lv.p<=850 && lv.t>35) return false;
-    if(lv.p<=500 && lv.t>10) return false;
-    if(lv.p<=300 && lv.t>0) return false;
-    if(lv.td!=null && lv.td>lv.t+0.6) lv.td=lv.t;
+    if(lv.t>45||lv.t<-90) return false;
+    if(lv.td!=null && lv.td>lv.t+1) lv.td=lv.t;
     return true;
   }
   let profile=[...merged.values()].filter(sondeLevelOk).sort((a,b)=>b.p-a.p);
