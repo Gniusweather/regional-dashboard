@@ -5254,7 +5254,7 @@ function drawSkewT(canvas,profile,meta,opt){
   }
   if(cssW>=380){
     ctx.font='9px sans-serif';ctx.fillStyle='rgba(60,60,60,0.9)';ctx.textAlign='right';
-    ctx.fillText('NOAA v34 · '+prof.length+' lvls · heights ft',g.pad.l+g.plotW,g.H-4);
+    ctx.fillText('NOAA v35 · '+prof.length+' lvls · heights ft',g.pad.l+g.plotW,g.H-4);
   }
 
   // Plain-English summary — same analysis text shown in the HTML card above
@@ -5576,7 +5576,7 @@ function sondeCapeCin(parcel){
   const {prof,P0,Ptop,Plcl,parcelT,parcelW,envT,envTd}=parcel;
   const Rd=287.05, g=9.80665;
   const levels=new Set([P0]);
-  for(let P=P0;P>=Math.max(Ptop,100);P-=10) levels.add(P);
+  for(let P=P0;P>=Math.max(Ptop,100);P-=2) levels.add(P);
   prof.forEach(r=>{ if(r.p<=P0&&r.p>=Ptop) levels.add(r.p); });
   if(Plcl<P0&&Plcl>Ptop) levels.add(Plcl);
   const uniq=[...levels].sort((a,b)=>b-a);
@@ -5584,11 +5584,13 @@ function sondeCapeCin(parcel){
   for(const P of uniq){
     const Te=envT(P), Tp=parcelT(P);
     if(Te==null||Tp==null) continue;
-    samples.push({P,dT:Tp-Te,Tv:Te});
+    const TeV=sondeVirtualT(Te,envTd(P)!=null?sondeMixR(envTd(P),P):0);
+    const TpV=sondeVirtualT(Tp,parcelW(P));
+    samples.push({P,dT:TpV-TeV,Tv:TeV});
   }
   let LFC=null,EL=null;
   for(let i=1;i<samples.length;i++){
-    if(samples[i-1].dT<=0 && samples[i].dT>0 && samples[i].P<=Plcl+1){
+    if(samples[i-1].dT<=0 && samples[i].dT>0){
       const f=samples[i-1].dT/(samples[i-1].dT-samples[i].dT||1e-6);
       LFC=samples[i-1].P+(samples[i].P-samples[i-1].P)*f;
       break;
