@@ -4975,19 +4975,7 @@ function drawSkewT(canvas,profile,meta,opt){
   // (dry-adiabatic to the LCL, then moist-adiabatic above it), and a dot
   // marking the LCL itself. Drawn under the T/Td traces so those stay the
   // most prominent lines on the chart.
-  const parcel=sondeSurfaceParcel(profile);
-  if(parcel){
-    sondeShadeParcelArea(ctx,g,parcel.envT,parcel.parcelT,parcel.P0,parcel.Ptop);
-    ctx.strokeStyle='#1d4ed8';ctx.lineWidth=2;ctx.setLineDash([]);
-    ctx.beginPath();
-    for(let P=parcel.P0;P>=parcel.Ptop;P-=10){
-      const x=g.xOf(parcel.parcelT(P),P),y=g.yOf(P);
-      P===parcel.P0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-    }
-    ctx.stroke();
-    const lx=g.xOf(parcel.Tlcl,parcel.Plcl),ly=g.yOf(parcel.Plcl);
-    ctx.beginPath();ctx.arc(lx,ly,3,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();
-  }
+  /* Wyoming-style: no parcel trace or CAPE fill on the chart */
 
   // Cloud layers — a band across the full plot width wherever T and Td run
   // close together (near-saturated air), with a small glyph + height label
@@ -5035,12 +5023,12 @@ function drawSkewT(canvas,profile,meta,opt){
     ctx.lineWidth=2.2;ctx.lineJoin='round';ctx.lineCap='round';
     const tdPts=prof.filter(r=>r.td!=null);
     if(tdPts.length>1){
-      ctx.strokeStyle='#0a7a28';
+      ctx.strokeStyle='#111';
       ctx.beginPath();
       tdPts.forEach((r,i)=>{ const x=g.xOf(r.td,r.p),y=g.yOf(r.p); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
       ctx.stroke();
     }
-    ctx.strokeStyle='#d21f1f';
+    ctx.strokeStyle='#111';
     ctx.beginPath();
     const tPts=prof.filter(r=>isFinite(r.t)&&isFinite(r.p)&&r.t<=40&&!(r.p<=500&&r.t>10)&&!(r.p<=300&&r.t>0));
     tPts.forEach((r,i)=>{
@@ -5079,9 +5067,7 @@ function drawSkewT(canvas,profile,meta,opt){
     const y=g.yOf(P);
     if(y<g.pad.t+5||y>g.yBottom-3||Math.abs(y-lastHy)<16)return;
     lastHy=y;
-    const ft=h*3.28084;
-    const ftStr=ft>=1000?(ft/1000).toFixed(1)+'k':String(Math.round(ft));
-    const label=ftStr+'ft';
+    const label=String(Math.round(h));
     const w=ctx.measureText(label).width;
     ctx.fillStyle='rgba(255,255,255,0.85)';
     ctx.fillRect(g.pad.l+1,y-8,w+8,16);
@@ -5256,7 +5242,7 @@ function drawSkewT(canvas,profile,meta,opt){
   }
   if(cssW>=380){
     ctx.font='9px sans-serif';ctx.fillStyle='rgba(60,60,60,0.9)';ctx.textAlign='right';
-    ctx.fillText('NOAA v30 · '+prof.length+' lvls · heights ft',g.pad.l+g.plotW,g.H-4);
+    ctx.fillText('NOAA v31 · '+prof.length+' lvls · heights m',g.pad.l+g.plotW,g.H-4);
   }
 
   // Plain-English summary — same analysis text shown in the HTML card above
@@ -5508,17 +5494,22 @@ function sondeParcelAscent(prof,P0,Ptop,T0,Td0){
     Plcl=P; Tlcl=Tp;
     if(sondeMixR(Tp,P)<=w0)break;
   }
-  const moistPts=[{p:Plcl,t:Tlcl}];
-  { let T=Tlcl,P=Plcl; const dP=-5;
-    while(P+dP>=Ptop){
-      const k1=sondeMoistLapse(T,P);
-      const k2=sondeMoistLapse(T+dP/2*k1,P+dP/2);
-      const k3=sondeMoistLapse(T+dP/2*k2,P+dP/2);
-      const k4=sondeMoistLapse(T+dP*k3,P+dP);
-      T=T+dP/6*(k1+2*k2+2*k3+k4); P=P+dP;
-      moistPts.push({p:P,t:T});
+  const teLcl=(function(){
+    const w=sondeMixR(Tlcl,Plcl)/1000, Tk=Tlcl+273.15;
+    return Tk*Math.pow(1000/Plcl,0.2854*(1-0.28*w))*Math.exp(w*(3376/Tk-2.54));
+  })();
+  function sondeTFromThetaE(P,teTarget){
+    let lo=-90, hi=50, T=Tlcl;
+    for(let n=0;n<24;n++){
+      T=(lo+hi)/2;
+      const w=sondeMixR(T,P)/1000, Tk=T+273.15;
+      const te=Tk*Math.pow(1000/P,0.2854*(1-0.28*w))*Math.exp(w*(3376/Tk-2.54));
+      if(te>teTarget) hi=T; else lo=T;
     }
+    return T;
   }
+  const moistPts=[{p:Plcl,t:Tlcl}];
+  for(let P=Plcl-5;P>=Ptop;P-=5) moistPts.push({p:P,t:sondeTFromThetaE(P,teLcl)});
   function parcelT(P){
     if(P>=Plcl) return sondeTOnDryAdiabat(theta0,P);
     for(let i=0;i<moistPts.length-1;i++){
@@ -5581,9 +5572,7 @@ function sondeCapeCin(parcel){
   for(const P of uniq){
     const Te=envT(P), Tp=parcelT(P);
     if(Te==null||Tp==null) continue;
-    const TeV=sondeVirtualT(Te,envTd(P)!=null?sondeMixR(envTd(P),P):0);
-    const TpV=sondeVirtualT(Tp,parcelW(P));
-    samples.push({P,dT:TpV-TeV,Tv:TeV});
+    samples.push({P,dT:Tp-Te,Tv:Te});
   }
   let LFC=null,EL=null;
   for(let i=1;i<samples.length;i++){
