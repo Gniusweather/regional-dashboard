@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/all_upperair.py
+      - patches/mucape.py
 permissions:
   contents: write
 jobs:
@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Plot every TEMP/PILOT level
+      - name: Switch CAPE to most-unstable parcel
         run: |
-          python3 patches/all_upperair.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v26','rwc-shell-v27').replace('rwc-shell-v25','rwc-shell-v27'); p.write_text(t); print(t.splitlines()[1])"
+          python3 patches/mucape.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v27','rwc-shell-v28').replace('rwc-shell-v26','rwc-shell-v28'); p.write_text(t); print(t.splitlines()[1])"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add sonde-noaa.js sw.js
+          git add index.html sw.js
           git diff --cached --stat
-          git diff --cached --quiet || git commit -m 'Skew-T: plot all TTAA/TTBB/TTCC/TTDD/PPBB levels'
+          git diff --cached --quiet || git commit -m 'Skew-T CAPE is MUCAPE (most unstable parcel)'
           git push
