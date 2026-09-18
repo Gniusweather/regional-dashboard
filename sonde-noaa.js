@@ -194,6 +194,46 @@ function parseTempBB(text,high){
   }
   return map;
 }
+
+function parseTempPP(text){
+  const groups=sondeTempGroups(text).filter(g=>g!=='78988'&&g!=='NIL'&&g!=='nil');
+  const out=[];
+  let i=0;
+  while(i<groups.length){
+    const g=groups[i];
+    if(g==='31313'||g.startsWith('51515')||g.startsWith('41414')) break;
+    if(!(g[0]==='9'||g[0]==='8') || !/^\d\d/.test(g)){ i++; continue; }
+    const decade=parseInt(g[1],10);
+    if(!isFinite(decade)){ i++; continue; }
+    const heights=[];
+    for(const ch of g.slice(2)){
+      if(ch==='/') continue;
+      if(!/\d/.test(ch)) continue;
+      heights.push((decade*10+parseInt(ch,10))*1000);
+    }
+    i++;
+    for(const hft of heights){
+      if(i>=groups.length) break;
+      const w=sondeTempWind(groups[i]); i++;
+      if(w.drct!=null||w.sknt!=null) out.push({hft,drct:w.drct,sknt:w.sknt});
+    }
+  }
+  return out;
+}
+function sondePFromHeightM(profile,hm){
+  const pts=(profile||[]).filter(r=>r.hgt!=null&&isFinite(r.hgt)&&isFinite(r.p)).sort((a,b)=>a.hgt-b.hgt);
+  if(!pts.length||hm==null) return null;
+  if(hm<=pts[0].hgt) return pts[0].p;
+  if(hm>=pts[pts.length-1].hgt) return pts[pts.length-1].p;
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i],b=pts[i+1];
+    if(hm>=a.hgt&&hm<=b.hgt){
+      const f=(hm-a.hgt)/((b.hgt-a.hgt)||1);
+      return a.p+(b.p-a.p)*f;
+    }
+  }
+  return null;
+}
 function parseNoaaTempParts(parts){
   const maps=[];
   if(parts.TTAA) maps.push(parseTempAA(parts.TTAA,false));
@@ -204,10 +244,28 @@ function parseNoaaTempParts(parts){
   for(const m of maps){
     for(const [k,v] of m) sondeTempMergeLevel(merged,k,v);
   }
-  const profile=[...merged.values()].filter(lv=>{
-      if(lv.t==null||!(lv.p>=70&&lv.p<=1100)) return false;
-      if(lv.t>48||lv.t<-95) return false;
-      return true;
+  let profile=[...merged.values()].filter(lv=>{
+      if(!(lv.p>=100&&lv.p<=1075)) return false;
+      if(lv.t!=null && (lv.t>50||lv.t<-90)) return false;
+      return lv.t!=null || lv.td!=null || lv.drct!=null;
+    }).sort((a,b)=>b.p-a.p);
+  const pp=[...(parts.PPBB?parseTempPP(parts.PPBB):[]), ...(parts.PPDD?parseTempPP(parts.PPDD):[])];
+  pp.forEach(w=>{
+    const p=sondePFromHeightM(profile, w.hft*0.3048);
+    if(p==null) return;
+    let best=null, dBest=1e9;
+    profile.forEach(lv=>{ const d=Math.abs(lv.p-p); if(d<dBest){ dBest=d; best=lv; } });
+    if(best && dBest<=12){
+      if(best.drct==null) best.drct=w.drct;
+      if(best.sknt==null) best.sknt=w.sknt;
+    } else {
+      sondeTempMergeLevel(merged,p,{drct:w.drct,sknt:w.sknt});
+    }
+  });
+  profile=[...merged.values()].filter(lv=>{
+      if(!(lv.p>=100&&lv.p<=1075)) return false;
+      if(lv.t!=null && (lv.t>50||lv.t<-90)) return false;
+      return lv.t!=null || lv.td!=null || lv.drct!=null;
     }).sort((a,b)=>b.p-a.p);
   if(profile.length<8) return null;
   const meta=sondeTempHeaderMeta(parts.TTAA||parts.TTBB||'');
@@ -231,7 +289,7 @@ async function sondeFetchLocalMirror(){
     if(!j||!j.parts||!j.parts.TTAA) return null;
     const parsed=parseNoaaTempParts(j.parts);
     if(!parsed) return null;
-    parsed.source='NOAA tgftp raw TEMP (TTAA/TTBB/TTCC/TTDD)';
+    parsed.source='NOAA tgftp raw TEMP (TTAA/TTBB/TTCC/TTDD/PPBB/PPDD)';
     return {parsed,url:SONDE_NOAA_RAW.TTAA,dt:parsed.dt||null};
   }catch(e){ return null; }
 }
