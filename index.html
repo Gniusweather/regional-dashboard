@@ -4975,7 +4975,21 @@ function drawSkewT(canvas,profile,meta,opt){
   // (dry-adiabatic to the LCL, then moist-adiabatic above it), and a dot
   // marking the LCL itself. Drawn under the T/Td traces so those stay the
   // most prominent lines on the chart.
-  /* Wyoming-style: no parcel trace or CAPE fill on the chart */
+  const parcel=sondeSurfaceParcel(profile);
+  if(parcel){
+    sondeShadeParcelArea(ctx,g,parcel.envT,parcel.parcelT,parcel.P0,parcel.Ptop);
+    ctx.strokeStyle='#1d4ed8';ctx.lineWidth=2;ctx.setLineDash([]);
+    ctx.beginPath();
+    for(let P=parcel.P0;P>=Math.max(parcel.Ptop,100);P-=10){
+      const Tp=parcel.parcelT(P);
+      if(Tp==null||!isFinite(Tp)) continue;
+      const x=g.xOf(Tp,P),y=g.yOf(P);
+      P===parcel.P0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+    const lx=g.xOf(parcel.Tlcl,parcel.Plcl),ly=g.yOf(parcel.Plcl);
+    ctx.beginPath();ctx.arc(lx,ly,3,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();
+  }
 
   // Cloud layers — a band across the full plot width wherever T and Td run
   // close together (near-saturated air), with a small glyph + height label
@@ -5244,7 +5258,7 @@ function drawSkewT(canvas,profile,meta,opt){
   }
   if(cssW>=380){
     ctx.font='9px sans-serif';ctx.fillStyle='rgba(60,60,60,0.9)';ctx.textAlign='right';
-    ctx.fillText('NOAA v32 · '+prof.length+' lvls · heights ft',g.pad.l+g.plotW,g.H-4);
+    ctx.fillText('NOAA v33 · '+prof.length+' lvls · heights ft',g.pad.l+g.plotW,g.H-4);
   }
 
   // Plain-English summary — same analysis text shown in the HTML card above
