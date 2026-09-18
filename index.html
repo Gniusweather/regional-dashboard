@@ -7,7 +7,7 @@
 
 <!-- PWA / home-screen app -->
 <link rel="manifest" href="manifest.webmanifest" />
-<script src="sonde-noaa.js"></script>
+<script src="sonde-noaa.js?v=30"></script>
 <meta name="theme-color" content="#020d18" />
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
 <link rel="apple-touch-icon" href="icon-180.png" />
@@ -5256,7 +5256,7 @@ function drawSkewT(canvas,profile,meta,opt){
   }
   if(cssW>=380){
     ctx.font='9px sans-serif';ctx.fillStyle='rgba(60,60,60,0.9)';ctx.textAlign='right';
-    ctx.fillText('NOAA TTAA+TTBB · '+prof.length+' lvls · heights ft',g.pad.l+g.plotW,g.H-4);
+    ctx.fillText('NOAA v30 · '+prof.length+' lvls · heights ft',g.pad.l+g.plotW,g.H-4);
   }
 
   // Plain-English summary — same analysis text shown in the HTML card above
@@ -6277,7 +6277,7 @@ window.__metarDashboard={refreshAllMetars,updateVisFromKnmi,loadAllTafs,loadAllS
     var swReg=null;
     window.addEventListener('load',function(){
       var hadController = !!navigator.serviceWorker.controller;
-      navigator.serviceWorker.register('sw.js').then(function(reg){
+      navigator.serviceWorker.register('sw.js?v=30').then(function(reg){
         swReg=reg;
         reg.update();
         setInterval(function(){ reg.update(); }, 60*60*1000); // hourly update check
