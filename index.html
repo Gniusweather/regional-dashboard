@@ -5023,12 +5023,12 @@ function drawSkewT(canvas,profile,meta,opt){
     ctx.lineWidth=2.2;ctx.lineJoin='round';ctx.lineCap='round';
     const tdPts=prof.filter(r=>r.td!=null);
     if(tdPts.length>1){
-      ctx.strokeStyle='#111';
+      ctx.strokeStyle='#0a7a28';
       ctx.beginPath();
       tdPts.forEach((r,i)=>{ const x=g.xOf(r.td,r.p),y=g.yOf(r.p); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
       ctx.stroke();
     }
-    ctx.strokeStyle='#111';
+    ctx.strokeStyle='#d21f1f';
     ctx.beginPath();
     const tPts=prof.filter(r=>isFinite(r.t)&&isFinite(r.p)&&r.t<=40&&!(r.p<=500&&r.t>10)&&!(r.p<=300&&r.t>0));
     tPts.forEach((r,i)=>{
@@ -5067,7 +5067,9 @@ function drawSkewT(canvas,profile,meta,opt){
     const y=g.yOf(P);
     if(y<g.pad.t+5||y>g.yBottom-3||Math.abs(y-lastHy)<16)return;
     lastHy=y;
-    const label=String(Math.round(h));
+    const ft=h*3.28084;
+    const ftStr=ft>=1000?(ft/1000).toFixed(1)+'k':String(Math.round(ft));
+    const label=ftStr+'ft';
     const w=ctx.measureText(label).width;
     ctx.fillStyle='rgba(255,255,255,0.85)';
     ctx.fillRect(g.pad.l+1,y-8,w+8,16);
@@ -5242,7 +5244,7 @@ function drawSkewT(canvas,profile,meta,opt){
   }
   if(cssW>=380){
     ctx.font='9px sans-serif';ctx.fillStyle='rgba(60,60,60,0.9)';ctx.textAlign='right';
-    ctx.fillText('NOAA v31 · '+prof.length+' lvls · heights m',g.pad.l+g.plotW,g.H-4);
+    ctx.fillText('NOAA v32 · '+prof.length+' lvls · heights ft',g.pad.l+g.plotW,g.H-4);
   }
 
   // Plain-English summary — same analysis text shown in the HTML card above
