@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/fix_red_trace.py
+      - patches/bust_ios_cache.py
 permissions:
   contents: write
 jobs:
@@ -12,13 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fix spiked temperature trace
+      - name: Cache-bust iOS PWA scripts
         run: |
-          python3 patches/fix_red_trace.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v28','rwc-shell-v29').replace('rwc-shell-v27','rwc-shell-v29'); p.write_text(t); print(t.splitlines()[1])"
+          python3 patches/bust_ios_cache.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add sonde-noaa.js index.html sw.js
+          git add index.html
           git diff --cached --stat
-          git diff --cached --quiet || git commit -m 'Fix spiked red temperature trace on Skew-T'
+          git diff --cached --quiet || git commit -m 'Cache-bust sonde-noaa.js and SW for iOS homescreen'
           git push
