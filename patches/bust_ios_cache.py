@@ -1,0 +1,10 @@
+from pathlib import Path
+h=Path('index.html')
+t=h.read_text(encoding='utf-8')
+t=t.replace('<script src="sonde-noaa.js"></script>','<script src="sonde-noaa.js?v=30"></script>',1)
+t=t.replace("navigator.serviceWorker.register('sw.js')","navigator.serviceWorker.register('sw.js?v=30')",1)
+t=t.replace("'NOAA TTAA+TTBB · '+prof.length+' lvls · heights ft'","'NOAA v30 · '+prof.length+' lvls · heights ft'",1)
+h.write_text(t,encoding='utf-8')
+print('script', 'sonde-noaa.js?v=30' in t)
+print('sw reg', 'sw.js?v=30' in t)
+print('footer', 'NOAA v30' in t)
