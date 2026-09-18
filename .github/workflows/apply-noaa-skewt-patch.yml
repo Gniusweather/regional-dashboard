@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/restore_parcel.py
+      - patches/wyoming_data_desktop.py
 permissions:
   contents: write
 jobs:
@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Restore parcel and CAPE fill
+      - name: Wyoming data levels + desktop chart
         run: |
-          python3 patches/restore_parcel.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v32','rwc-shell-v33').replace('rwc-shell-v31','rwc-shell-v33'); p.write_text(t); print(t.splitlines()[1])"
+          python3 patches/wyoming_data_desktop.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v33','rwc-shell-v34').replace('rwc-shell-v32','rwc-shell-v34'); p.write_text(t); print(t.splitlines()[1])"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html sw.js
+          git add sonde-noaa.js index.html sw.js
           git diff --cached --stat
-          git diff --cached --quiet || git commit -m 'Restore blue parcel path and CAPE/CIN shading'
+          git diff --cached --quiet || git commit -m 'Skew-T: all TTAA/TTBB levels like Wyoming; larger desktop chart'
           git push
