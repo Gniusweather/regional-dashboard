@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/cin_virtual.py
+      - patches/add_sounderpy_tab.py
 permissions:
   contents: write
 jobs:
@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Virtual-T CIN
+      - name: Add SounderPy tab
         run: |
-          python3 patches/cin_virtual.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v34','rwc-shell-v35').replace('rwc-shell-v33','rwc-shell-v35'); p.write_text(t); print(t.splitlines()[1])"
+          python3 patches/add_sounderpy_tab.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v36','rwc-shell-v37').replace('rwc-shell-v35','rwc-shell-v37'); p.write_text(t); print(t.splitlines()[1])"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
           git diff --cached --stat
-          git diff --cached --quiet || git commit -m 'CIN/CAPE use virtual temperature and 2 hPa sampling'
+          git diff --cached --quiet || git commit -m 'Add SounderPy tab for Wyoming TNCC full dark plot'
           git push
