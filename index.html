@@ -1427,6 +1427,7 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
     <button class="tab-btn" data-tab="maps" role="tab" aria-selected="false">🗺 Maps</button>
     <button class="tab-btn" data-tab="stations" role="tab" aria-selected="false">⊞ Stations</button>
       <button class="tab-btn" data-tab="atc" role="tab" aria-selected="false">ATC</button>
+      <button class="tab-btn" data-tab="sounderpy" role="tab" aria-selected="false">SounderPy</button>
   </nav>
 
   <!-- ═══ CONTENT ═══ -->
@@ -1500,6 +1501,16 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
       </div>
     </div>
 
+    <div id="sounderpySection" class="table-wrapper fade-in hidden">
+      <div class="section-header">
+        <div class="section-title">SounderPy · TNCC 78988</div>
+        <div class="section-controls" style="font-size:12px;color:var(--muted)">Wyoming RAOB · full · dark · updates 00Z/12Z</div>
+      </div>
+      <div style="background:#0b1220;border-radius:12px;overflow:auto;border:1px solid var(--border);padding:8px">
+        <img id="sounderpyImg" alt="SounderPy TNCC sounding" style="width:100%;max-width:1200px;display:block;margin:0 auto;background:#111" src="plots/sounderpy-78988.png">
+        <p id="sounderpyStamp" style="color:#8ea0b8;font-size:12px;margin:8px"></p>
+      </div>
+    </div>
     <div id="atcSection" class="table-wrapper fade-in hidden">
       <div class="section-header"><div class="section-title">Live ATC · ABC / TNCC</div></div>
       <div style="height:min(82vh,920px);border-radius:10px;overflow:hidden;border:1px solid var(--border)">
@@ -4434,6 +4445,7 @@ const knmiSectionEl=document.getElementById('knmiSection');
 const mapsSectionEl=document.getElementById('mapsSection');
 const stationsSectionEl=document.getElementById('stationsSection');
 const atcSectionEl=document.getElementById('atcSection');
+const sounderpySectionEl=document.getElementById('sounderpySection');
 const contentWrapperEl=document.querySelector('.content-wrapper');
 
 
@@ -4522,8 +4534,15 @@ function stationsSub(which){
   if(which==='ovz'){ try{ var f=ovz&&ovz.querySelector('iframe'); if(f&&(!f.dataset.loaded)){ f.src=f.src; f.dataset.loaded='1'; } }catch(e){} }
 }
 window.synopSub=synopSub; window.stationsSub=stationsSub;
+
+function loadSounderpyPlot(){
+  const img=document.getElementById('sounderpyImg');
+  const st=document.getElementById('sounderpyStamp');
+  if(img) img.src='plots/sounderpy-78988.png?t='+Date.now();
+  fetch('plots/sounderpy-78988.txt?t='+Date.now()).then(r=>r.ok?r.text():'').then(t=>{ if(st) st.textContent=t||'Waiting for first SounderPy plot (00Z/12Z workflow).'; }).catch(()=>{ if(st) st.textContent='Plot not generated yet.'; });
+}
 function switchTab(name){
-  [metarSectionEl,tafSectionEl,synopSectionEl,knmiSectionEl,mapsSectionEl,atcSectionEl].forEach(s=>s?.classList.add('hidden'));
+  [metarSectionEl,tafSectionEl,synopSectionEl,knmiSectionEl,mapsSectionEl,atcSectionEl,sounderpySectionEl].forEach(s=>s?.classList.add('hidden'));
   contentWrapperEl?.classList.remove('hidden');
   stationsSectionEl?.classList.add('hidden');
   stationsSectionEl?.setAttribute('aria-hidden','true');
@@ -4538,6 +4557,7 @@ function switchTab(name){
   else if(name==='knmi'){knmiSectionEl?.classList.remove('hidden');loadKnmiData();}
   else if(name==='maps'){mapsSectionEl?.classList.remove('hidden');loadRadiosonde();ensureMapsTabWindowsLoaded();}
   else if(name==='atc'){atcSectionEl?.classList.remove('hidden');}
+  else if(name==='sounderpy'){sounderpySectionEl?.classList.remove('hidden');loadSounderpyPlot();}
   else if(name==='stations'){
     contentWrapperEl?.classList.add('hidden');
     stationsSectionEl?.classList.remove('hidden');

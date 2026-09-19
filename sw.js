@@ -1,5 +1,5 @@
 /* Regional Weather Centre — service worker (app-shell cache, live data passthrough) */
-const CACHE = 'rwc-shell-v36';
+const CACHE = 'rwc-shell-v37';
 const ASSETS = [
   './',
   './index.html',
