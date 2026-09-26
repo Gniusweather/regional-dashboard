@@ -4512,9 +4512,13 @@ function synopSub(which){
 function stationsSub(which){
   const ovz=document.getElementById('ovz-wrap');
   const list=document.getElementById('stationsList');
+  const map=document.getElementById('stationsMapCard');
   if(ovz) ovz.style.display=which==='ovz'?'block':'none';
   if(list) list.style.display=which==='ovz'?'none':'grid';
-  document.querySelectorAll('.summary,.stations-header #toggleMap').forEach(function(){});
+  document.querySelectorAll('#stationsSection .summary').forEach(function(el){ el.style.display=which==='ovz'?'none':'flex'; });
+  const tog=document.getElementById('toggleMap');
+  if(tog) tog.style.display=which==='ovz'?'none':'inline-flex';
+  if(map && which==='ovz') map.classList.add('hidden');
   const net=document.getElementById('st-sub-net'), o=document.getElementById('st-sub-ovz');
   if(net) net.style.opacity=which==='ovz'?'.75':'1';
   if(o) o.style.opacity=which==='ovz'?'1':'.75';
