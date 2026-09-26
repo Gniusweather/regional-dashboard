@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/stations_ovz_fix.py
+      - patches/perf_lazy.py
 permissions:
   contents: write
 jobs:
@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fix Stations Overzicht
+      - name: Performance lazy load
         run: |
-          python3 patches/stations_ovz_fix.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v39','rwc-shell-v40').replace('rwc-shell-v38','rwc-shell-v40'); p.write_text(t); print(t.splitlines()[1])"
+          python3 patches/perf_lazy.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v40','rwc-shell-v41').replace('rwc-shell-v39','rwc-shell-v41'); p.write_text(t); print(t.splitlines()[1])"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
           git diff --cached --stat
-          git diff --cached --quiet || git commit -m 'Fix Stations Overzicht hiding network list extras'
+          git diff --cached --quiet || git commit -m 'Perf: lazy iframes, deferred fonts/leaflet/sonde, stagger maps'
           git push
