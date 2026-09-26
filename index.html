@@ -7,7 +7,7 @@
 
 <!-- PWA / home-screen app -->
 <link rel="manifest" href="manifest.webmanifest" />
-<script src="sonde-noaa.js?v=30"></script>
+<script src="sonde-noaa.js?v=30" defer></script>
 <meta name="theme-color" content="#020d18" />
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
 <link rel="apple-touch-icon" href="icon-180.png" />
@@ -18,7 +18,8 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@300;400;500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@300;400;500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@300;400;500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet"></noscript>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
 
 <style>
@@ -800,7 +801,8 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
    existing single-line nowrap/ellipsis look. */
 .synop-m-val[style*="white-space:normal"]{white-space:normal;overflow:visible;}
 .synop-raw-row{border-top:1px solid rgba(85,193,255,0.08);}
-.synop-raw-row.hidden{display:none;}
+.synop-raw-row.hidden{display:none!important;}
+.table-wrapper:not(.hidden){content-visibility:auto;contain-intrinsic-size:1px 700px;}
 .synop-raw-row .synop-raw{padding:10px 14px 14px;}
 
 /* ── KNMI BONAIRE ── */
@@ -1492,7 +1494,7 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
           </div>
           <div id="synop-day-body" style="color:var(--muted)">Open Day summary to load 78988 reports.</div>
         </div>
-        <div id="synop-encode-wrap" style="display:none;height:min(78vh,820px);border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px"><iframe src="encoders.html" title="SYNOP encoder" style="width:100%;height:100%;border:0;background:#0b1220"></iframe></div>
+        <div id="synop-encode-wrap" style="display:none;height:min(78vh,820px);border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-bottom:10px"><iframe src="about:blank" data-src="encoders.html" title="SYNOP encoder" style="width:100%;height:100%;border:0;background:#0b1220"></iframe></div>
         <div id="synop-table">
           <div id="synop"></div>
         </div>
@@ -1502,7 +1504,7 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
     <div id="atcSection" class="table-wrapper fade-in hidden">
       <div class="section-header"><div class="section-title">Live ATC · ABC / TNCC</div></div>
       <div style="height:min(82vh,920px);border-radius:10px;overflow:hidden;border:1px solid var(--border)">
-        <iframe src="atc.html" title="Live ATC" style="width:100%;height:100%;border:0;background:#0b1220"></iframe>
+        <iframe src="about:blank" data-src="atc.html" title="Live ATC" style="width:100%;height:100%;border:0;background:#0b1220"></iframe>
       </div>
     </div>
     <!-- KNMI Section -->
@@ -1601,7 +1603,7 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
       <button type="button" class="btn-primary" id="st-sub-ovz" onclick="stationsSub('ovz')" style="font-size:12px;height:28px;padding:4px 10px;opacity:.75">Overzicht</button>
     </div>
     <div id="ovz-wrap" style="display:none;min-height:60vh;border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-bottom:12px">
-      <iframe src="overzicht.html" title="Overzicht Weersgesteldheid" style="width:100%;height:min(80vh,900px);border:0;background:#fff"></iframe>
+      <iframe src="about:blank" data-src="overzicht.html" title="Overzicht Weersgesteldheid" style="width:100%;height:min(80vh,900px);border:0;background:#fff"></iframe>
     </div>
     <div id="stationsList" class="stations" aria-live="polite">
       <div style="padding:20px;color:var(--muted);font-family:var(--cond);letter-spacing:1px;text-transform:uppercase;font-size:14px;">Loading stations…</div>
@@ -1639,7 +1641,7 @@ tr.taf-change-row td.wx-critical{color:var(--alert)!important;background:var(--a
 
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="" defer></script>
 <script>
 (function () {
 'use strict';
@@ -4492,6 +4494,15 @@ async function loadDaySummary78988(force){
   host.dataset.loaded='1';
 }
 window.loadDaySummary78988=loadDaySummary78988;
+function lazyLoadIframe(root){
+  if(!root) return;
+  const f=root.tagName==='IFRAME'?root:root.querySelector('iframe');
+  if(!f) return;
+  const ds=f.getAttribute('data-src');
+  if(ds && (f.getAttribute('src')==='about:blank' || !f.getAttribute('src') || f.dataset.lazy!=='1')){
+    f.src=ds; f.dataset.lazy='1';
+  }
+}
 function synopSub(which){
   const enc=document.getElementById('synop-encode-wrap');
   const day=document.getElementById('synop-day-wrap');
@@ -4508,6 +4519,7 @@ function synopSub(which){
   if(b) b.style.opacity=which==='reports'?'1':'.75';
   if(c) c.style.opacity=which==='day'?'1':'.75';
   if(which==='day') loadDaySummary78988();
+  if(which==='encode') lazyLoadIframe(enc);
 }
 function stationsSub(which){
   const ovz=document.getElementById('ovz-wrap');
@@ -4522,7 +4534,7 @@ function stationsSub(which){
   const net=document.getElementById('st-sub-net'), o=document.getElementById('st-sub-ovz');
   if(net) net.style.opacity=which==='ovz'?'.75':'1';
   if(o) o.style.opacity=which==='ovz'?'1':'.75';
-  if(which==='ovz'){ try{ var f=ovz&&ovz.querySelector('iframe'); if(f&&(!f.dataset.loaded)){ f.src=f.src; f.dataset.loaded='1'; } }catch(e){} }
+  if(which==='ovz'){ lazyLoadIframe(ovz); }
 }
 window.synopSub=synopSub; window.stationsSub=stationsSub;
 
@@ -4542,7 +4554,7 @@ function switchTab(name){
   else if(name==='synop'){synopSectionEl?.classList.remove('hidden');}
   else if(name==='knmi'){knmiSectionEl?.classList.remove('hidden');loadKnmiData();}
   else if(name==='maps'){mapsSectionEl?.classList.remove('hidden');loadRadiosonde();ensureMapsTabWindowsLoaded();}
-  else if(name==='atc'){atcSectionEl?.classList.remove('hidden');}
+  else if(name==='atc'){atcSectionEl?.classList.remove('hidden');lazyLoadIframe(atcSectionEl);}
   else if(name==='stations'){
     contentWrapperEl?.classList.add('hidden');
     stationsSectionEl?.classList.remove('hidden');
@@ -4592,13 +4604,19 @@ function loadMapWindows(){
    and re-rendering full third-party map widgets each time this tab was
    revisited. */
 function ensureMapsTabWindowsLoaded(){
-  document.querySelectorAll('#mapsSection .windy-widget iframe[data-src]').forEach(function(f){
-    if(!f.getAttribute('src')||f.dataset.mapsLoaded!=='1'){
-      f.setAttribute('src', f.getAttribute('data-src'));
+  const frames=[].slice.call(document.querySelectorAll('#mapsSection iframe[data-src], #mapsSection iframe#ventuskyFrame'));
+  frames.forEach(function(f,i){
+    if(f.dataset.mapsLoaded==='1') return;
+    const kick=function(){
+      const ds=f.getAttribute('data-src');
+      if(ds) f.setAttribute('src', ds);
       f.dataset.mapsLoaded='1';
-    }
+      if(f.id==='ventuskyFrame' && !__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; }
+    };
+    if(i===0) kick();
+    else setTimeout(kick, 280*i);
   });
-  if(!__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; }
+  if(!__ventuskyFrameSet){ setTimeout(function(){ if(!__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; } }, 200); }
 }
 let __ventuskyFrameSet=false;
 /* Tap-to-unlock: each Maps-tab window is locked by default (see the
