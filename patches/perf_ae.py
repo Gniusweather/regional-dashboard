@@ -2,18 +2,34 @@ from pathlib import Path
 hp = Path('index.html')
 h = hp.read_text(encoding='utf-8')
 
-# A — restore stations map when leaving Overzicht
-old_a = """  if(tog) tog.style.display=which==='ovz'?'none':'inline-flex';
+# A — restore stations map when leaving Overzicht (use mapCard; do not shadow Leaflet `map`)
+old_a = """function stationsSub(which){
+  const ovz=document.getElementById('ovz-wrap');
+  const list=document.getElementById('stationsList');
+  const map=document.getElementById('stationsMapCard');
+  if(ovz) ovz.style.display=which==='ovz'?'block':'none';
+  if(list) list.style.display=which==='ovz'?'none':'grid';
+  document.querySelectorAll('#stationsSection .summary').forEach(function(el){ el.style.display=which==='ovz'?'none':'flex'; });
+  const tog=document.getElementById('toggleMap');
+  if(tog) tog.style.display=which==='ovz'?'none':'inline-flex';
   if(map && which==='ovz') map.classList.add('hidden');
 """
-new_a = """  if(tog) tog.style.display=which==='ovz'?'none':'inline-flex';
-  if(map){
+new_a = """function stationsSub(which){
+  const ovz=document.getElementById('ovz-wrap');
+  const list=document.getElementById('stationsList');
+  const mapCard=document.getElementById('stationsMapCard');
+  if(ovz) ovz.style.display=which==='ovz'?'block':'none';
+  if(list) list.style.display=which==='ovz'?'none':'grid';
+  document.querySelectorAll('#stationsSection .summary').forEach(function(el){ el.style.display=which==='ovz'?'none':'flex'; });
+  const tog=document.getElementById('toggleMap');
+  if(tog) tog.style.display=which==='ovz'?'none':'inline-flex';
+  if(mapCard){
     if(which==='ovz'){
-      map.dataset.wasOpen = map.classList.contains('hidden') ? '0' : '1';
-      map.classList.add('hidden');
-    } else if(map.dataset.wasOpen==='1'){
-      map.classList.remove('hidden');
-      try{ if(typeof map!=='undefined' && window.map) setTimeout(function(){ try{ window.map.invalidateSize(); }catch(e){} }, 200); }catch(e){}
+      mapCard.dataset.wasOpen = mapCard.classList.contains('hidden') ? '0' : '1';
+      mapCard.classList.add('hidden');
+    } else if(mapCard.dataset.wasOpen==='1'){
+      mapCard.classList.remove('hidden');
+      setTimeout(function(){ try{ if(typeof map!=='undefined' && map && map.invalidateSize) map.invalidateSize(); }catch(e){} }, 200);
     }
   }
 """
@@ -22,6 +38,8 @@ if old_a in h:
     print('A stations map restore')
 else:
     print('WARN A')
+    i = h.find('function stationsSub')
+    print(repr(h[i:i+500]))
 
 # B — remove boot-time loadMapWindows
 old_b = """  }finally{
@@ -38,8 +56,7 @@ if old_b in h:
     print('B remove boot maps')
 else:
     print('WARN B')
-    # looser
-    if 'loadMapWindows);' in h and 'requestIdleCallback' in h:
+    if '(window.requestIdleCallback||function(cb){return setTimeout(cb,1200);})(loadMapWindows);' in h:
         h = h.replace(
             '(window.requestIdleCallback||function(cb){return setTimeout(cb,1200);})(loadMapWindows);',
             '/* maps: tab-only load */',
@@ -47,7 +64,7 @@ else:
         print('B loose')
 
 # C — tickClocks skip when hidden
-old_c = 'function tickClocks(){\n  try{' 
+old_c = 'function tickClocks(){\n  try{'
 new_c = 'function tickClocks(){\n  if(document.hidden) return;\n  try{'
 if old_c in h:
     h = h.replace(old_c, new_c, 1)
@@ -74,7 +91,6 @@ loader = '''function ensureLeafletCss(){
 }
 '''
 if 'function ensureLeafletCss' not in h:
-    # inject before initMap if present
     if 'function initMap' in h:
         h = h.replace('function initMap', loader + 'function initMap', 1)
         print('D ensureLeafletCss fn')
@@ -82,16 +98,16 @@ if 'function ensureLeafletCss' not in h:
         h = h.replace('function switchTab(name){', loader + 'function switchTab(name){', 1)
         print('D ensureLeafletCss before switchTab')
 
-# call ensureLeafletCss at start of initMap
-if 'function initMap' in h and 'ensureLeafletCss()' not in h[h.find('function initMap'):h.find('function initMap')+200]:
-    # find initMap body start
-    i = h.find('function initMap')
+# call ensureLeafletCss at start of initMap (after possible injection above)
+i = h.find('function initMap')
+if i >= 0:
     brace = h.find('{', i)
-    h = h[:brace+1] + '\n  ensureLeafletCss();' + h[brace+1:]
-    print('D call in initMap')
+    snippet = h[brace:brace+80]
+    if 'ensureLeafletCss()' not in snippet:
+        h = h[:brace+1] + '\n  ensureLeafletCss();' + h[brace+1:]
+        print('D call in initMap')
 
-# also on toggleMap open path
-if "mapCard.classList.remove('hidden');initMap();" in h:
+if "mapCard.classList.remove('hidden');initMap();" in h and "ensureLeafletCss();initMap()" not in h:
     h = h.replace(
         "mapCard.classList.remove('hidden');initMap();",
         "mapCard.classList.remove('hidden');ensureLeafletCss();initMap();",
@@ -99,22 +115,6 @@ if "mapCard.classList.remove('hidden');initMap();" in h:
     print('D toggleMap')
 
 # E — IntersectionObserver for maps iframes
-old_e = '''function ensureMapsTabWindowsLoaded(){
-  const frames=[].slice.call(document.querySelectorAll('#mapsSection iframe[data-src], #mapsSection iframe#ventuskyFrame'));
-  frames.forEach(function(f,i){
-    if(f.dataset.mapsLoaded==='1') return;
-    const kick=function(){
-      const ds=f.getAttribute('data-src');
-      if(ds) f.setAttribute('src', ds);
-      f.dataset.mapsLoaded='1';
-      if(f.id==='ventuskyFrame' && !__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; }
-    };
-    if(i===0) kick();
-    else setTimeout(kick, 280*i);
-  });
-  if(!__ventuskyFrameSet){ setTimeout(function(){ if(!__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; } }, 200); }
-}'''
-
 new_e = '''function ensureMapsTabWindowsLoaded(){
   const frames=[].slice.call(document.querySelectorAll('#mapsSection iframe[data-src], #mapsSection iframe#ventuskyFrame'));
   function kick(f){
@@ -128,7 +128,6 @@ new_e = '''function ensureMapsTabWindowsLoaded(){
     if(!__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; }
     return;
   }
-  // First frame immediately (above the fold)
   kick(frames[0]);
   const rest=frames.slice(1);
   if(!rest.length){
@@ -151,15 +150,29 @@ new_e = '''function ensureMapsTabWindowsLoaded(){
   if(!__ventuskyFrameSet){ setTimeout(function(){ if(!__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; } }, 200); }
 }'''
 
+old_e = '''function ensureMapsTabWindowsLoaded(){
+  const frames=[].slice.call(document.querySelectorAll('#mapsSection iframe[data-src], #mapsSection iframe#ventuskyFrame'));
+  frames.forEach(function(f,i){
+    if(f.dataset.mapsLoaded==='1') return;
+    const kick=function(){
+      const ds=f.getAttribute('data-src');
+      if(ds) f.setAttribute('src', ds);
+      f.dataset.mapsLoaded='1';
+      if(f.id==='ventuskyFrame' && !__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; }
+    };
+    if(i===0) kick();
+    else setTimeout(kick, 280*i);
+  });
+  if(!__ventuskyFrameSet){ setTimeout(function(){ if(!__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; } }, 200); }
+}'''
+
 if old_e in h:
     h = h.replace(old_e, new_e, 1)
     print('E intersection observer')
 else:
     print('WARN E exact')
-    # try replace function body by finding start/end
     start = h.find('function ensureMapsTabWindowsLoaded(){')
     if start >= 0:
-        # find matching close at same indent level - simplistic: next\nlet __ventuskyFrameSet
         end = h.find('\nlet __ventuskyFrameSet', start)
         if end > start:
             h = h[:start] + new_e + h[end:]
@@ -171,6 +184,3 @@ else:
 
 hp.write_text(h, encoding='utf-8')
 print('done A-E')
-print('boot loadMapWindows call', 'loadMapWindows);' in h and 'requestIdleCallback' in h)
-print('ensureLeafletCss', 'ensureLeafletCss' in h)
-print('IntersectionObserver maps', 'IntersectionObserver' in h[h.find('ensureMapsTabWindowsLoaded'):h.find('ensureMapsTabWindowsLoaded')+800] if 'ensureMapsTabWindowsLoaded' in h else False)
