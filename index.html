@@ -20,7 +20,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@300;400;500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@300;400;500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet"></noscript>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+<!-- leaflet.css loaded on first Stations map open -->
 
 <style>
 :root{
@@ -1749,6 +1749,7 @@ function pad(n){ return n < 10 ? '0' + n : '' + n; }
 function formatLocalDateTimeParts(){ const d=new Date(); return { date:`${pad(d.getDate())}-${pad(d.getMonth()+1)}-${d.getFullYear()}`, time:`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` }; }
 function formatUTCDateTimeParts(){ const d=new Date(); return { date:`${pad(d.getUTCDate())}-${pad(d.getUTCMonth()+1)}-${d.getUTCFullYear()}`, time:`${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}` }; }
 function tickClocks(){
+  if(document.hidden) return;
   try{
     const l=formatLocalDateTimeParts(), u=formatUTCDateTimeParts();
     document.getElementById('local-clock').textContent=l.time;
@@ -4224,7 +4225,17 @@ function extractCoords(row){
   return(lat!=null&&lon!=null)?{lat:Number(lat),lon:Number(lon)}:null;
 }
 
+function ensureLeafletCss(){
+  if(document.getElementById('leaflet-css-rwc')) return;
+  var l=document.createElement('link');
+  l.id='leaflet-css-rwc';
+  l.rel='stylesheet';
+  l.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  l.crossOrigin='';
+  document.head.appendChild(l);
+}
 function initMap(){
+  ensureLeafletCss();
   if(map)return;
   map=L.map('map',{zoomControl:true}).setView([ISLAND_CENTER.lat,ISLAND_CENTER.lon],11);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
@@ -4419,7 +4430,7 @@ async function fetchStationsData(){
 document.getElementById('toggleMap').addEventListener('click',()=>{
   const mapCard=document.getElementById('stationsMapCard');
   const isHidden=mapCard.classList.contains('hidden');
-  if(isHidden){mapCard.classList.remove('hidden');initMap();addMarkersToMap(currentData);try{map.setView([ISLAND_CENTER.lat,ISLAND_CENTER.lon],11);setTimeout(()=>map.invalidateSize(),200);}catch(e){}}
+  if(isHidden){mapCard.classList.remove('hidden');ensureLeafletCss();initMap();addMarkersToMap(currentData);try{map.setView([ISLAND_CENTER.lat,ISLAND_CENTER.lon],11);setTimeout(()=>map.invalidateSize(),200);}catch(e){}}
   else mapCard.classList.add('hidden');
 });
 el('mapSearch').addEventListener('input',()=>{
@@ -4524,13 +4535,21 @@ function synopSub(which){
 function stationsSub(which){
   const ovz=document.getElementById('ovz-wrap');
   const list=document.getElementById('stationsList');
-  const map=document.getElementById('stationsMapCard');
+  const mapCard=document.getElementById('stationsMapCard');
   if(ovz) ovz.style.display=which==='ovz'?'block':'none';
   if(list) list.style.display=which==='ovz'?'none':'grid';
   document.querySelectorAll('#stationsSection .summary').forEach(function(el){ el.style.display=which==='ovz'?'none':'flex'; });
   const tog=document.getElementById('toggleMap');
   if(tog) tog.style.display=which==='ovz'?'none':'inline-flex';
-  if(map && which==='ovz') map.classList.add('hidden');
+  if(mapCard){
+    if(which==='ovz'){
+      mapCard.dataset.wasOpen = mapCard.classList.contains('hidden') ? '0' : '1';
+      mapCard.classList.add('hidden');
+    } else if(mapCard.dataset.wasOpen==='1'){
+      mapCard.classList.remove('hidden');
+      setTimeout(function(){ try{ if(typeof map!=='undefined' && map && map.invalidateSize) map.invalidateSize(); }catch(e){} }, 200);
+    }
+  }
   const net=document.getElementById('st-sub-net'), o=document.getElementById('st-sub-ovz');
   if(net) net.style.opacity=which==='ovz'?'.75':'1';
   if(o) o.style.opacity=which==='ovz'?'1':'.75';
@@ -4605,17 +4624,36 @@ function loadMapWindows(){
    revisited. */
 function ensureMapsTabWindowsLoaded(){
   const frames=[].slice.call(document.querySelectorAll('#mapsSection iframe[data-src], #mapsSection iframe#ventuskyFrame'));
-  frames.forEach(function(f,i){
-    if(f.dataset.mapsLoaded==='1') return;
-    const kick=function(){
-      const ds=f.getAttribute('data-src');
-      if(ds) f.setAttribute('src', ds);
-      f.dataset.mapsLoaded='1';
-      if(f.id==='ventuskyFrame' && !__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; }
-    };
-    if(i===0) kick();
-    else setTimeout(kick, 280*i);
-  });
+  function kick(f){
+    if(!f || f.dataset.mapsLoaded==='1') return;
+    const ds=f.getAttribute('data-src');
+    if(ds) f.setAttribute('src', ds);
+    f.dataset.mapsLoaded='1';
+    if(f.id==='ventuskyFrame' && !__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; }
+  }
+  if(!frames.length){
+    if(!__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; }
+    return;
+  }
+  kick(frames[0]);
+  const rest=frames.slice(1);
+  if(!rest.length){
+    if(!__ventuskyFrameSet){ setTimeout(function(){ if(!__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; } }, 150); }
+    return;
+  }
+  if('IntersectionObserver' in window){
+    const io=new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){
+          kick(en.target);
+          io.unobserve(en.target);
+        }
+      });
+    }, {root:null, rootMargin:'120px 0px', threshold:0.01});
+    rest.forEach(function(f){ io.observe(f); });
+  } else {
+    rest.forEach(function(f,i){ setTimeout(function(){ kick(f); }, 350*(i+1)); });
+  }
   if(!__ventuskyFrameSet){ setTimeout(function(){ if(!__ventuskyFrameSet){ setVentuskyFrame(); __ventuskyFrameSet=true; } }, 200); }
 }
 let __ventuskyFrameSet=false;
@@ -6287,8 +6325,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
     testMode=true;startTestRunner();
     const b=document.getElementById('test-btn');if(b)b.textContent='⚗ Exit Test';
   }finally{
-    // Load the heavy map iframes once the data has painted (idle if supported).
-    (window.requestIdleCallback||function(cb){return setTimeout(cb,1200);})(loadMapWindows);
+    // Maps load only when the Maps tab is opened (ensureMapsTabWindowsLoaded).
   }
 })();
 
