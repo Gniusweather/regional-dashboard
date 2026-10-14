@@ -4603,6 +4603,13 @@ function setVentuskyFrame(){
    painted, so the initial load isn't slowed by four embedded map apps. This
    fires once, ~1.2s after page load — while #mapsSection is still
    display:none, since Maps isn't the default tab. */
+function loadHeaderMapWindows(){
+  document.querySelectorAll('.windy-widget-header iframe[data-src]').forEach(function(f){
+    if(f.dataset.headerLoaded==='1') return;
+    var ds=f.getAttribute('data-src');
+    if(ds){ f.setAttribute('src', ds); f.dataset.headerLoaded='1'; }
+  });
+}
 function loadMapWindows(){
   document.querySelectorAll('.windy-widget iframe[data-src]').forEach(function(f){
     if(!f.getAttribute('src')) f.setAttribute('src', f.getAttribute('data-src'));
@@ -6325,7 +6332,8 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
     testMode=true;startTestRunner();
     const b=document.getElementById('test-btn');if(b)b.textContent='⚗ Exit Test';
   }finally{
-    // Maps load only when the Maps tab is opened (ensureMapsTabWindowsLoaded).
+    // Header satellite/radar only (Maps-tab embeds stay tab-lazy).
+    (window.requestIdleCallback||function(cb){return setTimeout(cb,400);})(loadHeaderMapWindows);
   }
 })();
 
