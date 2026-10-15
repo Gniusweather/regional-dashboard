@@ -16,6 +16,8 @@
 <meta name="apple-mobile-web-app-title" content="RWC Weather" />
 <meta name="mobile-web-app-capable" content="yes" />
 
+<link rel="preconnect" href="https://embed.windy.com" crossorigin>
+<link rel="dns-prefetch" href="https://embed.windy.com">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@300;400;500;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
@@ -4674,10 +4676,22 @@ function setVentuskyFrame(){
    fires once, ~1.2s after page load — while #mapsSection is still
    display:none, since Maps isn't the default tab. */
 function loadHeaderMapWindows(){
-  document.querySelectorAll('.windy-widget-header iframe[data-src]').forEach(function(f){
+  var frames=[].slice.call(document.querySelectorAll('.windy-widget-header iframe'));
+  frames.forEach(function(f,i){
     if(f.dataset.headerLoaded==='1') return;
-    var ds=f.getAttribute('data-src');
-    if(ds){ f.setAttribute('src', ds); f.dataset.headerLoaded='1'; }
+    var ds=f.getAttribute('data-src')||f.getAttribute('src');
+    if(!ds) return;
+    var kick=function(){
+      if(f.getAttribute('src')!==ds) f.setAttribute('src', ds);
+      f.dataset.headerLoaded='1';
+    };
+    // already has src from HTML parse — just mark; otherwise set immediately (sat) / slight stagger (radar)
+    if(f.getAttribute('src') && f.getAttribute('src')!=='about:blank'){
+      f.dataset.headerLoaded='1';
+      return;
+    }
+    if(i===0) kick();
+    else setTimeout(kick, 60);
   });
 }
 function loadMapWindows(){
@@ -6388,6 +6402,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
 /* ── INIT ── */
 (async function init(){
   try{
+    try{ loadHeaderMapWindows(); }catch(e){}
     primeFromCache(); // instant paint from last-known data while fresh reports load
     await Promise.allSettled([refreshAllMetars(),loadAllTafs(),loadAllSynops(),loadKnmiData()]);
     const anyData=STATIONS.some(icao=>metarState[icao]&&metarState[icao].lastRaw);
@@ -6403,7 +6418,7 @@ setInterval(()=>{if(!document.hidden)loadRadiosonde(true);},60*60*1000);
     const b=document.getElementById('test-btn');if(b)b.textContent='⚗ Exit Test';
   }finally{
     // Header satellite/radar only (Maps-tab embeds stay tab-lazy).
-    (window.requestIdleCallback||function(cb){return setTimeout(cb,400);})(loadHeaderMapWindows);
+    try{ loadHeaderMapWindows(); }catch(e){}
   }
 })();
 
