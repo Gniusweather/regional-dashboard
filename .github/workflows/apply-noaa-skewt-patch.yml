@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/header_maps_faster.py
+      - patches/header_maps_src.py
 permissions:
   contents: write
 jobs:
@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Faster header satellite/radar
+      - name: Header iframe eager src
         run: |
-          python3 patches/header_maps_faster.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v44','rwc-shell-v45').replace('rwc-shell-v43','rwc-shell-v45'); p.write_text(t); print(t.splitlines()[1])"
+          python3 patches/header_maps_src.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v45','rwc-shell-v46').replace('rwc-shell-v44','rwc-shell-v46'); p.write_text(t); print(t.splitlines()[1])"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
           git diff --cached --stat
-          git diff --cached --quiet || git commit -m 'Faster header satellite/radar: eager src + preconnect + early kick'
+          git diff --cached --quiet || git commit -m 'Header satellite/radar: real src at HTML parse time'
           git push
