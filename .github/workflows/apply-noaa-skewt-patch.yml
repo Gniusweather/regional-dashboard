@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/metar_history_fix.py
+      - patches/header_maps_faster.py
 permissions:
   contents: write
 jobs:
@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fix 6h METAR history
+      - name: Faster header satellite/radar
         run: |
-          python3 patches/metar_history_fix.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v43','rwc-shell-v44').replace('rwc-shell-v42','rwc-shell-v44'); p.write_text(t); print(t.splitlines()[1])"
+          python3 patches/header_maps_faster.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v44','rwc-shell-v45').replace('rwc-shell-v43','rwc-shell-v45'); p.write_text(t); print(t.splitlines()[1])"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
           git diff --cached --stat
-          git diff --cached --quiet || git commit -m 'Fix 6h METAR history: raw text path + resilient parse'
+          git diff --cached --quiet || git commit -m 'Faster header satellite/radar: eager src + preconnect + early kick'
           git push
