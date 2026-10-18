@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/synop_78988_watch.py
+      - patches/wx_notify_tncc_tnca.py
 permissions:
   contents: write
 jobs:
@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: 78988 SYNOP SI/SM watch
+      - name: TNCC significant + TNCA gust/TS
         run: |
-          python3 patches/synop_78988_watch.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v46','rwc-shell-v47').replace('rwc-shell-v45','rwc-shell-v47'); p.write_text(t); print(t.splitlines()[1])"
+          python3 patches/wx_notify_tncc_tnca.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v47','rwc-shell-v48').replace('rwc-shell-v46','rwc-shell-v48'); p.write_text(t); print(t.splitlines()[1])"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
           git diff --cached --stat
-          git diff --cached --quiet || git commit -m '78988 SYNOP watch: SI/SM poll T-5..T+15, ntfy new/missing/NIL/bad, 08-21 AST'
+          git diff --cached --quiet || git commit -m 'Notify: TNCC only significant (wx/15kt/vis/OVC); TNCA gust>35 or TS'
           git push
