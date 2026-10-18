@@ -1,71 +1,34 @@
 from pathlib import Path
-import re
-hp = Path('index.html')
-h = hp.read_text(encoding='utf-8')
+import re, subprocess, sys
 
-# Broken SPECI ntfyPublish / showAppNotification string literals (real newlines inside quotes)
-broken = '''          ntfyPublish('SPECI — '+icao, tStr+' — special report issued.
-'+(metarLine||parsed.raw||''), ['zap'], 4);
-          if(notificationsEnabled&&'Notification' in window&&Notification.permission==='granted'){
-            showAppNotification('⚡ SPECI — '+icao, {
-              body: tStr+'
-'+(metarLine||parsed.raw||''),
-              tag: 'speci-'+icao,
-              requireInteraction: true,
-              silent: false,
-              icon: 'icon-192.png',
-              badge: 'icon-192.png'
-            });
-          }'''
+hp = Path("index.html")
+h = hp.read_text(encoding="utf-8")
 
-fixed = '''          ntfyPublish('SPECI — '+icao, tStr+' — special report issued.\n'+(metarLine||parsed.raw||''), ['zap'], 4);
-          if(notificationsEnabled&&'Notification' in window&&Notification.permission==='granted'){
-            showAppNotification('⚡ SPECI — '+icao, {
-              body: tStr+'\n'+(metarLine||parsed.raw||''),
-              tag: 'speci-'+icao,
-              requireInteraction: true,
-              silent: false,
-              icon: 'icon-192.png',
-              badge: 'icon-192.png'
-            });
-          }'''
+old1 = "tStr+' — special report issued." + "\n" + "'+(metarLine"
+new1 = "tStr+' — special report issued.\\n'+(metarLine"
+old2 = "body: tStr+'" + "\n" + "'+(metarLine"
+new2 = "body: tStr+'\\n'+(metarLine"
 
-if broken in h:
-    h = h.replace(broken, fixed, 1)
-    print('fixed SPECI block')
-else:
-    # regex fallback: fix tStr+' ... newline ... '+(metarLine
-    h2, n = re.subn(
-        r"tStr\+' — special report issued\.\n'\+\(metarLine",
-        "tStr+' — special report issued.\\n'+(metarLine",
-        h,
-        count=1,
-    )
-    # The file has REAL newline not backslash-n
-    h2, n = re.subn(
-        r"tStr\+' — special report issued\.\s*\n'\+\(metarLine",
-        "tStr+' — special report issued.\\n'+(metarLine",
-        h,
-        count=1,
-    )
-    h2, n2 = re.subn(
-        r"body: tStr\+'\s*\n'\+\(metarLine",
-        "body: tStr+'\\n'+(metarLine",
-        h2,
-        count=1,
-    )
-    print('regex fixes', n, n2)
-    h = h2
+n1 = h.count(old1)
+n2 = h.count(old2)
+if n1:
+    h = h.replace(old1, new1)
+    print("fixed ntfy string", n1)
+if n2:
+    h = h.replace(old2, new2)
+    print("fixed body string", n2)
+if not n1 and not n2:
+    i = h.find("special report issued")
+    print("pattern miss", repr(h[i:i+50]) if i >= 0 else "not found")
 
-hp.write_text(h, encoding='utf-8')
+hp.write_text(h, encoding="utf-8")
 
-# syntax check largest inline script
-import re as _re, subprocess, sys
-scripts=_re.findall(r'<script(?![^>]*src=)[^>]*>([\s\S]*?)</script>', h)
-big=max(scripts, key=len)
-Path('/tmp/app_check2.js').write_text(big)
-r=subprocess.run(['node','--check','/tmp/app_check2.js'], capture_output=True, text=True)
-print('node check', r.returncode)
-print(r.stderr[:500] if r.stderr else 'OK')
-if r.returncode!=0:
+scripts = re.findall(r"<script(?![^>]*src=)[^>]*>([\s\S]*?)</script>", h)
+big = max(scripts, key=len)
+Path("/tmp/check_app.js").write_text(big)
+r = subprocess.run(["node", "--check", "/tmp/check_app.js"], capture_output=True, text=True)
+print("node", r.returncode)
+if r.returncode != 0:
+    print(r.stderr[:500])
     sys.exit(1)
+print("OK")
