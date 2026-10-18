@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/speci_notify.py
+      - patches/fix_speci_syntax.py
 permissions:
   contents: write
 jobs:
@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: SPECI ntfy alerts
+      - name: Fix SPECI syntax
         run: |
-          python3 patches/speci_notify.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v48','rwc-shell-v49').replace('rwc-shell-v47','rwc-shell-v49'); p.write_text(t); print(t.splitlines()[1])"
+          python3 patches/fix_speci_syntax.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v49','rwc-shell-v50').replace('rwc-shell-v48','rwc-shell-v50'); p.write_text(t); print(t.splitlines()[1])"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
           git diff --cached --stat
-          git diff --cached --quiet || git commit -m 'Alert on SPECI for TNCA, TNCB, TNCC (ntfy + browser)'
+          git diff --cached --quiet || git commit -m 'Hotfix: SPECI notify broken string (app not loading)'
           git push
