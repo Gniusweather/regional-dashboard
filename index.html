@@ -3082,6 +3082,30 @@ function renderMetar(icao,raw){
       const sigReasons=significantConditionReasons(parsed,windSpeed,gustValue);
       if(sigReasons.length)sendWxNotification(icao,parsed,sigReasons);
     }
+    // ── SPECI issued (TNCA / TNCB / TNCC) — minute ≠ routine METAR minute
+    if(isNew&&typeof SPECI_ICAOS!=='undefined'&&SPECI_ICAOS.includes(icao)&&!window.__suppressAlarms){
+      const sm=(metarLine||parsed.raw||'').match(/\b(\d{2})(\d{2})(\d{2})Z\b/);
+      if(sm){
+        const minute=parseInt(sm[3],10);
+        const routine=(typeof SPECI_ROUTINE_MIN!=='undefined'&&SPECI_ROUTINE_MIN[icao]!=null)?SPECI_ROUTINE_MIN[icao]:0;
+        if(minute!==routine){
+          const tStr=sm[2]+':'+sm[3]+'Z';
+          ntfyPublish('SPECI — '+icao, tStr+' — special report issued.
+'+(metarLine||parsed.raw||''), ['zap'], 4);
+          if(notificationsEnabled&&'Notification' in window&&Notification.permission==='granted'){
+            showAppNotification('⚡ SPECI — '+icao, {
+              body: tStr+'
+'+(metarLine||parsed.raw||''),
+              tag: 'speci-'+icao,
+              requireInteraction: true,
+              silent: false,
+              icon: 'icon-192.png',
+              badge: 'icon-192.png'
+            });
+          }
+        }
+      }
+    }
     if(typeof windSpeed==='number'){state.stats.winds.push(windSpeed);if(state.stats.winds.length>200)state.stats.winds.shift();}
     if(parsed.td&&typeof parsed.td==='string'){const m=parsed.td.match(/^(M?)(\d{1,2})\/(M?)(\d{1,2})$/);if(m){const sign=m[1]==='M'?-1:1;const tempVal=sign*parseInt(m[2],10);state.stats.temps.push(tempVal);if(state.stats.temps.length>200)state.stats.temps.shift();}}
     if(!isNaN(parsed.visMin)){state.stats.vis.push(parsed.visMin);if(state.stats.vis.length>200)state.stats.vis.shift();}
