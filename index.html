@@ -3090,12 +3090,10 @@ function renderMetar(icao,raw){
         const routine=(typeof SPECI_ROUTINE_MIN!=='undefined'&&SPECI_ROUTINE_MIN[icao]!=null)?SPECI_ROUTINE_MIN[icao]:0;
         if(minute!==routine){
           const tStr=sm[2]+':'+sm[3]+'Z';
-          ntfyPublish('SPECI — '+icao, tStr+' — special report issued.
-'+(metarLine||parsed.raw||''), ['zap'], 4);
+          ntfyPublish('SPECI — '+icao, tStr+' — special report issued.\n'+(metarLine||parsed.raw||''), ['zap'], 4);
           if(notificationsEnabled&&'Notification' in window&&Notification.permission==='granted'){
             showAppNotification('⚡ SPECI — '+icao, {
-              body: tStr+'
-'+(metarLine||parsed.raw||''),
+              body: tStr+'\n'+(metarLine||parsed.raw||''),
               tag: 'speci-'+icao,
               requireInteraction: true,
               silent: false,
