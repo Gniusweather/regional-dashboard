@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - .github/workflows/apply-noaa-skewt-patch.yml
-      - patches/fix_speci_syntax.py
+      - patches/synop_order_fonts.py
 permissions:
   contents: write
 jobs:
@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fix SPECI syntax
+      - name: SYNOP order and fonts
         run: |
-          python3 patches/fix_speci_syntax.py
-          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v49','rwc-shell-v50').replace('rwc-shell-v48','rwc-shell-v50'); p.write_text(t); print(t.splitlines()[1])"
+          python3 patches/synop_order_fonts.py
+          python3 -c "from pathlib import Path; p=Path('sw.js'); t=p.read_text().replace('rwc-shell-v50','rwc-shell-v51').replace('rwc-shell-v49','rwc-shell-v51'); p.write_text(t); print(t.splitlines()[1])"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html sw.js
           git diff --cached --stat
-          git diff --cached --quiet || git commit -m 'Hotfix: SPECI notify broken string (app not loading)'
+          git diff --cached --quiet || git commit -m 'SYNOP: TNCC on top, TNCA below; slightly larger fonts'
           git push
